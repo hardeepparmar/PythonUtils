@@ -5,6 +5,10 @@ if( sys.version_info.major < 3 ):
 
 import socket, errno, io, re, random, time, requests
 from concurrent.futures import ThreadPoolExecutor
+from threading import Thread
+from socketserver import ThreadingMixIn
+from http.server import HTTPServer, BaseHTTPRequestHandler
+
 if os.name != 'nt':
     print("This script is primarily to be run via native Windows command prompt and python.\nSome of the functionality may not work with cygwin.", file=sys.stderr)
     # time.sleep(3)
@@ -32,7 +36,7 @@ def ensureModule(*argv):
     modules=[]
     import re, importlib
     for m in argv:
-        modules.extend(re.split('[\s,]+',m.strip()))
+        modules.extend(re.split('[\\s,]+',m.strip()))
     for m in modules:
         module = m.split('=')
         pkg=None
@@ -55,7 +59,7 @@ def ensureModule(*argv):
             print("No module/pkg '%s/%s' available." % (m,pkg))
 
 
-ensureModule("fire,httpagentparser, termcolor")
+ensureModule("fire,httpagentparser, termcolor, bs4")
 from termcolor import colored, cprint
 
 def get_all_IPV4_Addrs_impl():
@@ -74,6 +78,58 @@ def test(arg1, arg2):
         runAsAdmin()
     os.system('c:\\cygwin64\\Cygwin.bat')
 
+inpStack=[]
+ansStack=[]
+finalAns=[]
+BEST_FIT_LIMIT=500
+
+def update():
+    global ansStack , finalAns
+    if(sum(ansStack) > sum(finalAns)):
+        finalAns=ansStack[:]
+        print("finalAns sum is now " + str(sum(finalAns)))
+
+def xfer(fromSt, toStack):
+    if len(fromSt) > 0:
+        toStack.append(fromSt.pop())
+
+def bsum():
+    global inpStack, ansStack, BEST_FIT_LIMIT
+    ret=0
+    if( sum(ansStack) == BEST_FIT_LIMIT or len(inpStack) == 0 ):
+        update()
+        return ret
+    if( sum(ansStack) < BEST_FIT_LIMIT):
+        xfer(inpStack, ansStack)
+        ret=bsum()
+        if ret == 0:
+            update()
+            xfer(ansStack, inpStack)
+            return ret
+    if(sum(ansStack) > BEST_FIT_LIMIT):
+        xfer(ansStack, inpStack)
+        tempSt=[]
+        xfer(inpStack, tempSt)
+        ret=bsum()
+        if ret == 0:
+            update()
+            xfer(ansStack, inpStack)
+        xfer(tempSt, inpStack)
+    return ret
+
+def bestFitSum(MAX_LIMIT,*argv):
+    global finalAns, inpStack, BEST_FIT_LIMIT
+    BEST_FIT_LIMIT=MAX_LIMIT
+    for n in argv:
+        inpStack.append(n)
+    tempst=inpStack[:]
+    for x in inpStack:
+        bsum()
+        tempst.pop()
+        inpStack=tempst[:]
+    update()
+    print(finalAns)
+    print("finalAns sum is now " + str(sum(finalAns)))
 
 def binPatch(chunkBytes, replacementBytes, fileName):
     """Updates bytes in given binary file with replacement bytes.\n
@@ -179,12 +235,12 @@ def get_fast_cygwin_mirrors():
         break
 
 
-def installCygwin(root='c:\cygwin64', mirror='http://download.nus.edu.sg/mirror/cygwin/'):
-    """(Windows only) Install cygwin in c:\cygwin64 (default) folder... e.g
-    python utils.py --root='c:\cygwin64' --mirror='http://download.nus.edu.sg/mirror/cygwin/'
+def installCygwin(root='c:\\cygwin64', mirror='http://download.nus.edu.sg/mirror/cygwin/'):
+    """(Windows only) Install cygwin in c:\\cygwin64 (default) folder... e.g
+    python utils.py --root='c:\\cygwin64' --mirror='http://download.nus.edu.sg/mirror/cygwin/'
 
     root : string
-        The Local Root folder cygwin should be installed in. default='c:\cygwin64'
+        The Local Root folder cygwin should be installed in. default='c:\\cygwin64'
     mirror : string
         web url to use as cgwin mirror. default='http://download.nus.edu.sg/mirror/cygwin/'
     """
@@ -247,12 +303,13 @@ def num(i):
     sys.stdout.flush()
     engine = pyttsx3.init()
     b=0
+    roundA=a
     if '.' in a:
-        b=2
-        a=a.split('.',1)[0]
+        b=-1
+        roundA=a.split('.',1)[0]
     if b == 0:
-        b={True: pow(10, len(a) - 3), False: 1} [len(a) > 6 ]
-        roundA=int((int(a) + b/2)/b)*b
+        b={True: pow(10, len(roundA) - 3), False: 1} [len(roundA) > 6 ]
+        roundA=int((int(roundA) + b/2)/b)*b
     else:
         roundA=a
     engine.say( num2words(roundA) + {True: ' approx', False:''} [ b > 1] )
@@ -292,7 +349,7 @@ def imageToText(imgPath, fetchCode=False, binPath=r'C:\\Program Files\\Tesseract
         raise RuntimeError('Could not read image file %s' % imgPath)
     pytesseract.pytesseract.tesseract_cmd=binPath
     t=pytesseract.image_to_string(img)
-    t=(re.findall(r"[0-9][0-9][0-9][0-9][0-9]", (re.findall(r"SECURITY CODE\s+[0-9][0-9][0-9][0-9][0-9]",t) or [''])[0]) or [''])[0] if( fetchCode == 'fetchCode' ) else t
+    t=(re.findall(r"[0-9][0-9][0-9][0-9][0-9]", (re.findall(r"SECURITY CODE\\s+[0-9][0-9][0-9][0-9][0-9]",t) or [''])[0]) or [''])[0] if( fetchCode == 'fetchCode' ) else t
     print(t)
 
 def generateHistgramOnTerminal(nstep  = 64, base = 10 ):
@@ -351,6 +408,9 @@ def isUserAdmin():
             return False
     elif os.name == 'posix':
         # Check for root on Posix
+        import platform
+        if platform.system().lower().startswith('cygwin'):
+            return True
         return os.getuid() == 0
     else:
         raise RuntimeError("Unsupported operating system for this module: %s" % (os.name))
@@ -463,6 +523,81 @@ def portscan(*argv):
         else:
             print("Port" , str(port) , " is available\n")
 
+class Handler(BaseHTTPRequestHandler):
+    def __init__(self, hostname='', port=80):
+        self.port = port
+        self.hostname=hostname.strip()
+    def __call__(self, *args, **kwargs):
+        """Handle a request."""
+        super().__init__(*args, **kwargs)
+    def do_GET(self):
+        self.server_version="ACC_HPARMAR/V1"
+        self.send_response(200)
+        self.send_header("Content-type", "text/html")
+        self.end_headers()
+        response="<HTML><HEAD><TITLE>" + self.hostname + ":" + str(self.port) + "</TITLE></HEAD<BODY><p>" + str(self.date_time_string()) + " : Hello " + str(self.client_address) +"</p></BODY></HTML>"
+#        print(response)
+        self.wfile.write(bytes(response, "utf-8"))
+        self.close_connection=True
+
+class ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
+    daemon_threads = True
+
+def serve_on_port(port,host=''):
+    hostname=host.strip()
+    if not hostname:
+        if socket.gethostname().find('.')>=0:
+            hostname=socket.gethostname()
+        else:
+            hostname=socket.gethostbyaddr(socket.gethostname())[0]
+    server = ThreadingHTTPServer((hostname,port), Handler(hostname, port))
+    server.serve_forever()
+
+def servePorts(*argv):
+    """Takes a port or range of ports as arguments and starts listening on them if they are not already being listened to."""
+    """You can listen to response using curl e.g curl http://<hostname>:<port>"""
+    try:
+        if not isUserAdmin():
+            runAsAdmin()
+    except RuntimeError as e:
+        print(str(e))
+
+    ports=','.join(map(str, argv))
+    # ports="4,10, 1-3 ,100 , 1"
+    # ports="4,10, 1-3-5,100 , 1, #28"
+    myRegex = re.compile(r'^[1-9][0-9]*$|^[1-9][0-9]*-[1-9][0-9]*$')
+    rangeRegex = re.compile(r'^[1-9][0-9]*-[1-9][0-9]*$')
+    # rng_tmp_1 = [ x.strip() for x in ports.split(',') ]
+    port_rng = [ myRegex.search(x.strip()).group() for x in ports.split(',') if (myRegex.search(x.strip()) == None) == False ]
+    port_rng2 = []
+    for x in port_rng:
+        if (rangeRegex.search(x) == None):
+            port_rng2.append(int(x))
+        else :
+            for i in range_str_2_int(x):
+                port_rng2.append(i)
+    port_rng2 = list(set(port_rng2))
+    port_rng2.sort()
+    if socket.gethostname().find('.')>=0:
+        hostname=socket.gethostname()
+    else:
+        hostname=socket.gethostbyaddr(socket.gethostname())[0]
+
+    print("Serving ports",str(port_rng2), "...")
+    portServedByMainThread=0
+    for port in port_rng2:
+        status=is_port_in_use(hostname, port,0.5)
+        port_not_available = status == "in Use"
+        if (port_not_available == True):
+            print("Port ", str(port)," is in use on on this machine ", hostname)
+        else:
+            if (portServedByMainThread == 0) :
+                portServedByMainThread=port
+            else:
+                Thread(target=serve_on_port, args=[port]).start()
+    if (portServedByMainThread != 0) :
+       serve_on_port(portServedByMainThread)
+
 def get_windows_PID_Ports():
     """(Windows only) List all MS Windows processes and the network ports they are currently listening on."""
 
@@ -545,6 +680,8 @@ def targz_2_zip(path):
         convert_targz_2_zip(path)
 
 def normalize_tracking_data(sep='|'):
+    # Typical Input is data as in
+    # tracking_logs_db_analysis.sh -> per_day_delivery_hit_freq_distribution_all_dlvs.txt
     from datetime import datetime
     import pandas as pd
     import numpy as np
@@ -611,6 +748,47 @@ def getDeliveryInfo(minTrackingHits=1000, nDayAfter=7, minHitPercentRequired=90)
     print('%d %%   deliveries have hit rate of at least  %d %% after %d days' % (p , minHitPercentRequired, nDayAfter) )
     print('%d is the hit rate across all considered deliveries' % tot_p)
 
+def updateHTMLFile(file_path: str, bkpDir: str = '') :
+    """ Modifies HTML file."""
+    from bs4 import BeautifulSoup
+    fp = open(file_path, "r")
+    soup = BeautifulSoup(fp, 'html.parser')
+    fp.close()
+    title_tag=soup.new_tag("title")
+    if not soup.head.title:
+        soup.head.append(title_tag)
+    if not soup.head.title.text:
+        soup.head.title.string="ACC Test Widgets - " + os.path.splitext(os.path.basename(file_path))[0]
+    else:
+        return None
+    if bkpDir:
+        if not os.path.isdir(bkpDir):
+            os.makedirs(bkpDir,exist_ok = True)
+        bkpPath=os.path.join(bkpDir, os.path.basename(file_path))
+    else:
+        bkpPath=file_path
+    bkpPath += '.bak'
+    os.rename(file_path, bkpPath)
+    fp = open(file_path, "w")
+    fp.write(str(soup))
+    fp.close()
+
+def updateHTML(path: str, bkpDir: str = '') :
+    """ Modifies HTML file/folder."""
+    if not os.path.exists(path) :
+        print("path does not exist", file=sys.stderr)
+        return None
+    ext = ('.html', '.htm')
+    if os.path.isfile(path) and not path.endswith(ext):
+        print("Only (.htm, .html) file extensions are considered.", file=sys.stderr)
+        return None
+    if os.path.isdir(path) :
+        for file_name in os.listdir(path):
+            if file_name.endswith(ext):
+                updateHTMLFile(os.path.join(path,file_name), bkpDir)
+    else:
+        updateHTMLFile(path, bkpDir)
+
 def getDeliveryInfoPlot(minTrackingHits=1000, minHitPercentRequired=90):
     from datetime import datetime
     import pandas as pd
@@ -655,6 +833,7 @@ if __name__ == '__main__':
       'IPV4'                    : get_all_IPV4_Addrs,
       'get_windows_PID_Ports'   : get_windows_PID_Ports,
       'scanports'               : portscan,
+      'servePorts'              : servePorts,
       'num'                     : num,
       'img2txt'                 : imageToText,
       'ensureModule'            : ensureModule,
@@ -669,5 +848,7 @@ if __name__ == '__main__':
       'getDeliveryInfo'         : getDeliveryInfo,
       'getDeliveryInfoPlot'     : getDeliveryInfoPlot,
       'tar.gz2zip'              : targz_2_zip,
+      'bestFitSum'              : bestFitSum,
+      'updateHTML'              : updateHTML,
       'test': test
   })

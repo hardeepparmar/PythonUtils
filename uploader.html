@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+      <script>
+      function getUploadDir() {
+            var uploadDir = window.localStorage.getItem("uploadDir");
+            if (!uploadDir)
+                  uploadDir='./upload/'
+            document.getElementsByName("uploadDir")[0].value = uploadDir;
+      }
+      function setUploadDir() {
+            window.localStorage.setItem("uploadDir",document.getElementsByName("uploadDir")[0].value)
+      }
+      </script>
+   <body onload="getUploadDir()">
+      <form enctype = "multipart/form-data" action = "save_file.py" method = "post"  onsubmit="getUploadDir()">
+      <table>
+      <tr><td><p>File To Upload</p></td><td><input type = "file" name = "filename" /></td></tr>
+      <tr><td><p>Upload To Folder</p></td><td><input type = "text" name = "uploadDir" value="./upload/"/></td></tr>
+      </table>
+      <p><input type = "submit" value = "Upload" /></p>
+      </form>
+   </body>
+</html>
