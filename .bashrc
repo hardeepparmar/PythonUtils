@@ -1047,11 +1047,12 @@ function getXMLAttrVal {
   return $iRc
 }
 function cacheEnvVar {
-  local lRemoveKey=0
-  local lReadVar=0
-  local lForce=0
+  local lRemoveKey
+  local lReadVar
+  local lForce
+  local lAppend
   if [ $# -eq 0 ]; then
-    echo "${YELLOW_COL}Usage:${RESET_COL}  ${FUNCNAME[0]} [-[-]f,F,p,P (purge/force overwrite all variable references from cache)] [-[-]c,C (comment out variable from cache use)] [-[-]r,R (read variable from cache)] [-[-]h,H (help)] <variable> [value]"
+    echo "${YELLOW_COL}Usage:${RESET_COL}  ${FUNCNAME[0]} [-[-]f,F,p,P (purge/force overwrite cache with all variable references)] [-[-]c,C (comment out variable from cache use)] [-[-]r,R (read variable from cache)] [-[-]h,H (help)] <variable> [value]"
     return 1
   fi
   while [ ! -z "$1" ]
@@ -1060,7 +1061,7 @@ function cacheEnvVar {
       break
     fi
     if [[ $1 =~ ^[-]+[hH].* ]]; then
-      echo "${YELLOW_COL}Usage:${RESET_COL}  ${FUNCNAME[0]} [-[-]f,F,p,P (purge/force overwrite all variable references from cache)] [-[-]c,C (comment out variable from cache use)] [-[-]r,R (read variable from cache)] [-[-]h,H (help)] <variable> [value]"
+      echo "${YELLOW_COL}Usage:${RESET_COL}  ${FUNCNAME[0]} [-[-]f,F,p,P (purge/force overwrite cache with all variable references)] [-[-]c,C (comment out variable from cache use)] [-[-]r,R (read variable from cache)] [-[-]h,H (help)] <variable> [value]"
       return 0
     fi
     if [[ $1 =~ ^[-]+[cC].* ]]; then
@@ -1072,18 +1073,30 @@ function cacheEnvVar {
     if [[ $1 =~ ^[-]+[fFpP].* ]]; then
       lForce=1
     fi
+    if [[ $1 =~ ^[-]+[aA].* ]]; then
+      lAppend=1
+    fi
     shift
   done
+  if [[ -n ${lAppend} ]]; then
+    local v lines=()
+    for k in "$@"; do
+      v="${!k}"
+      [[ -z ${v} ]] || lines+=("export ${k}='${v}'")
+    done
+    printf "%s\n" "${lines[@]}" >> ~/.before.sh
+    return
+  fi
   local key=$1
   [[ ! -f ~/.before.sh ]] && touch ~/.before.sh
-  if [[ ${lReadVar} -ne 0 ]]; then
+  if [[ -n ${lReadVar} ]]; then
     local value=$(cat ~/.before.sh | grep -E "^[[:space:]]*export\s+${key}=" | tail -1)
     [[ -z ${value} ]] && unset ${key} && return 1
     [[ $value =~ ([[:space:]]*export[^=]+=[[:space:]]*[\'\"]?)([^\"\']+)([\'\"]?) ]] && declare -g ${key}="${BASH_REMATCH[2]}"
     return 0
   fi
-  if [[ ${lRemoveKey} -ne 0 ]]; then
-    if [[ ${lForce} -ne 0 ]]; then
+  if [[ -n ${lRemoveKey} ]]; then
+    if [[ -n ${lForce} ]]; then
       sed -i -r "/^[[:space:]#]*export\s+${key}=/d" ~/.before.sh
     else
       sed -i -r "s/(^\s*export\s+${key}=)(.*)/#\1\2/g" ~/.before.sh
@@ -1109,7 +1122,7 @@ function cacheEnvVar {
     export ${key}="${value}"
     cat ~/.before.sh | grep -E "^[[:space:]]*export[[:space:]]+${key}=" > /dev/null
     if [ $? -eq 0 ]; then
-      if [[ ${lForce} -ne 0 ]]; then
+      if [[ -n ${lForce} ]]; then
         sed -i -r "s/(^\s*export\s+${key}=)(.*)/\1\"${value}\"/g" ~/.before.sh
       else
         sed -i -r "s/(^\s*export\s+${key}=)(.*)/#\1\2/g" ~/.before.sh
@@ -1557,6 +1570,7 @@ function getCmdValue {
   fi
 }
 function wps {
+#  echo "Called from ${FUNCNAME[1]} via ${FUNCNAME[2]} as ... $@" > /dev/tty
   if exec_command_exists pwsh; then
     [[ $# -eq 1 ]] && [[ X$1 = "X-i" ]] && export PWSHELL=pwsh && return
     pwsh "$@"
@@ -1875,12 +1889,14 @@ function ascii {
   fi
 }
 function isHostAlive {
-  export PING_RTT=${PING_RTT:=1}
   local l_host=${1%%:*}
   if [ -z "${l_host}" ]; then
     false
     return
   fi
+  local h=${l_host%%.*}
+  h=${h,,}
+  [[ $h = 'localhost' || $l_host =~ ^127\.0\. || $h = "$(hostname)" ]] && true && return
   local PING_BIN
   if isCygwin; then
     PING_BIN=/usr/bin/ping
@@ -1890,6 +1906,7 @@ function isHostAlive {
   if ! exec_command_exists ${PING_BIN}; then
       aptS install ping
   fi
+  export PING_RTT=${PING_RTT:=1}
   # 8.8.8.8 is google DNS
   timeout ${PING_RTT} ping -c 1 -q 8.8.8.8 > /dev/null 2>&1;
   if [ $? -eq 0 ]; then
@@ -1962,7 +1979,7 @@ function host2IPv4 {
 }
 function getIP {
   local l__ip;
-  [[ $# -eq 0 ]] && [[ -n $_IP ]] && echo $_IP && return
+  [[ $# -eq 0 || "X${1,,}" = "X-vpn" ]] && [[ -n $_IP ]] && echo $_IP && return
   if [ $# -gt 0 -a "X${1,,}" = "X-pub" ]; then
     curl -s https://ipinfo.io/ip || curl https://ifconfig.me || curl https://ifconfig.me
     return $?
@@ -2010,7 +2027,7 @@ function getIP {
       l__ip=$(hostname --all-ip-addresses | rev | awk '{print $1}'  | rev)
     fi
   fi
-  [[ $# -eq 0 ]] && export _IP=$(getCmdValue "echo ${l__ip}") && echo $_IP && return
+  [[ $# -eq 0 || "X${1,,}" = "X-vpn" ]] && export _IP=$(getCmdValue "echo ${l__ip}") && echo $_IP && return
   echo $(getCmdValue "echo ${l__ip}")
 }
 function getCampaignInstance {
@@ -2587,34 +2604,35 @@ export PGCLIENTENCODING=UTF8
 export DEFAULT_PASSWORD=${DEFAULT_PASSWORD:='123456'}
 # tries to guess the database type from DB_SERVER
 function getDatabaseType {
-  local l_host l_port dbType
+# _TS ${FUNCNAME[0]}
+  local l_host l_port dbType dbkey
   if [[ -z ${DB_SERVER} ]]; then
     export DB_SERVER=$(hostname --fqdn)
-    cacheEnvVar -f DB_SERVER
+    dbkey='DB_SERVER|'
   fi
   [[ ${DB_SERVER} =~ ([^:]+)[:]?(.*) ]] && l_host=${BASH_REMATCH[1]//[[:space:]]/} && l_port=${BASH_REMATCH[2]//[[:space:]]/}
   unset DBMS_TYPE
+# _TE ${FUNCNAME[0]} $LINENO
   isHostAlive ${l_host} || return $?
-  cacheEnvVar -f -c PGHOST
-  cacheEnvVar -f -c PGPORT
+  unset PGHOST PGPORT
+#  _TE ${FUNCNAME[0]} $LINENO
   local l_curDB=${PGDATABASE}
   if [[ -z ${l_port} ]]; then
     [[ -z ${dbType} ]]  && isPortListening 5432 ${l_host} &&  export PGDATABASE=postgres && DBMS_VERSION="$(pgsql -host ${l_host} -V)"  && dbType="PostgreSQL" && PGHOST=${l_host}
     [[ -z ${dbType} ]]  && isPortListening 1433 ${l_host} &&  export PGDATABASE=master && DBMS_VERSION="$(mssql -host ${l_host} -V)"  && dbType="MSSQL" && PGHOST=${l_host}
-    cacheEnvVar PGHOST
   else
     [[ -z ${dbType} ]] &&  isPortListening ${l_port} ${l_host}  && export PGDATABASE=postgres &&  DBMS_VERSION="$(pgsql --host ${l_host} -p ${l_port} -V)" && dbType="PostgreSQL" && PGHOST=${l_host} && PGPORT=${l_port}
     [[ -z ${dbType} ]] &&  isPortListening ${l_port} ${l_host}  &&  export PGDATABASE=master && DBMS_VERSION="$(mssql --host ${l_host} -p ${l_port} -V)" && dbType="MSSQL" && PGHOST=${l_host}  && PGPORT=${l_port}
-    cacheEnvVar PGHOST
-    cacheEnvVar PGPORT
   fi
+#  _TE ${FUNCNAME[0]} $LINENO
   export PGDATABASE=${l_curDB}
   [[ -z ${dbType} ]] && return 1
   unset PGUSER # let calls from respective sql clients decide on default user to use.
   export DBMS_TYPE=${dbType}
-  cacheEnvVar -f DBMS_TYPE ${dbType}
-  export DBMS_VERSION=$(getCmdValue "echo \"${DBMS_VERSION}\"")
-  cacheEnvVar -f DBMS_VERSION
+  export DBMS_VERSION="$(trim $(echo "${DBMS_VERSION}"))"
+  sed -r -i "/${dbkey}DBMS_VERSION|DBMS_TYPE|PGPORT|PGHOST/d" ~/.before.sh
+  cacheEnvVar -a DBMS_VERSION DBMS_TYPE PGPORT PGHOST ${dbkey/|/}
+#  _TE ${FUNCNAME[0]} $LINENO
 }
 function redir2WSLHost {
   local openTermCmd="$@"
@@ -2910,16 +2928,21 @@ function setupVault {
   local iRc
   local pathSep='/'
   isCygwin && pathSep='\'
-  if [[ ! -e ~/.vault_hosts || $(stat -c '%s' $(readlink -f ~/.bashrc )) -lt 1024 ]]; then
+    local server_vault_host_cache_file="${TEAM_SHARE_CACHE}vault_hosts.txt"
+  if [[ $(stat -c '%s' $(readlink -f ~/.bashrc )) -lt 1024 ]]; then
     rm -f ~/.vault_hosts
     ${cpCmd} "${TEAM_SHARE_CACHE}vault_hosts.txt" ~/.vault_hosts
   fi
   if [[ ! -e ~/.vault_hosts || $(stat -c '%s' $(readlink -f ~/.vault_hosts )) -lt 1024 ]]; then
     echo "ALERT: Invalid ~/.vault_hosts cache file. " | STDERR
-    local pathSep='/' && isCygwin && pathSep='\'
-    local server_vault_host_cache_file="${TEAM_SHARE_CACHE}vault_hosts.txt"
-    [[ ! -e ~/.vault_hosts || $(stat -c '%s' $(readlink -f "${server_vault_host_cache_file}")) -lt 1024 ]] && echo "You may also want to check if you have permission to valid/existing ${YELLOW_COL}${server_vault_host_cache_file}${RESET_COL} and check with hparmar@${ADOBE_DOMAIN}"
-    return $(errno ENOENT | cut -d ' ' -f2)
+    rm -f ~/.vault_hosts
+    ${cpCmd} "${TEAM_SHARE_CACHE}vault_hosts.txt" ~/.vault_hosts
+    local isCacheFileonServerBad
+    [[ $(stat -c '%s' $(readlink -f "${TEAM_SHARE_CACHE}vault_hosts.txt" )) -lt 1024 ]] && isCacheFileonServerBad=1
+    if [[  ! -e ~/.vault_hosts || $(stat -c '%s' $(readlink -f ~/.vault_hosts )) -lt 1024 ]]; then
+      echo "You may also want to check if you have permission to valid/existing ${YELLOW_COL}${server_vault_host_cache_file}${RESET_COL} and check with hparmar@${ADOBE_DOMAIN}"
+      [[ -z ${isCacheFileonServerBad} ]] && return $(errno ENOENT | cut -d ' ' -f2)
+    fi
   fi
   if [[ -e ~/.vault_hosts && ! -z "$(head -1 ~/.vault_hosts | grep -E '^#\s*mtime')" ]]; then
     local file_mtime=$(head -1 ~/.vault_hosts | sed -r 's,^#\s*mtime\s*=\s*,,')
@@ -3031,10 +3054,8 @@ function getVaultCreds {
   fi
   if [[ ! -e ~/.vault_hosts || $(stat -c '%s' $(readlink -f ~/.vault_hosts )) -lt 1024 ]]; then
     echo "ALERT: Invalid ~/.vault_hosts cache file. " | STDERR
-    local pathSep='/' && isCygwin && pathSep='\'
-    local server_vault_host_cache_file="${TEAM_SHARE_CACHE}vault_hosts.txt"
-    [[ ! -e ~/.vault_hosts || $(stat -c '%s' $(readlink -f "${server_vault_host_cache_file}")) -lt 1024 ]] && echo "You may also want to check if you have permission to valid/existing ${YELLOW_COL}${server_vault_host_cache_file}${RESET_COL} and check with hparmar@${ADOBE_DOMAIN}"
-    return $(errno ENOENT | cut -d ' ' -f2)
+    wcinstall vault
+    [[ ! -e ~/.vault_hosts || $(stat -c '%s' $(readlink -f ~/.vault_hosts )) -lt 1024 ]] && return $(errno ENOENT | cut -d ' ' -f2);
   fi
   local l_Org
   local l_Server
@@ -3224,7 +3245,7 @@ function soap {
   local soapAction=$1; shift
   local soapURL="${SOAP_HOST}/nl/jsp/soaprouter.jsp"
   [[ ${soapAction} =~ [Nn][Oo][Nn][Ee] || ${soapAction} =~ [Nn][Uu][Ll][Ll] || ${soapAction} =~ [Nn][Ii][Ll] || ${soapAction} =~ 0 ]] && soapURL="${SOAP_HOST}/${1}"
-  curl -s --location --request POST "${soapURL}" \
+  curl -s --connect-timeout 1 -X POST \
   --header "Content-Type: application/soap+xml; action=${soapAction}; charset=utf-8" \
   --header 'Accept-Language: en' \
   --header "SOAPAction: ${soapAction}" \
@@ -3233,7 +3254,37 @@ function soap {
   --header 'X-Query-Source: nlclient' \
   --header "Host: ${l_host}" \
   --header 'Connection: keep-alive' \
-  --data-raw "$@"
+  --data-raw "$@" --location "${soapURL}"
+}
+function urlencode {
+    local string="${1}"
+    echo -n "${string}" | perl -MURI::Escape -ne 'print uri_escape($_)'
+}
+function jssp {
+  [[ $# -eq 0 ]] && echo "${YELLOW_COL}Usage:${RESET_COL} ${FUNCNAME[0]} <path-to-jssp> [<key1> <value1>] [<key2> <value2>] ..." && return
+  local l_proto l_host l_port
+  export SOAP_HOST=${SOAP_HOST:="https://$(hostname --fqdn)"}
+  [[ ${SOAP_HOST} =~ ([^:/]+)[:/]{2,} ]] && l_proto=${BASH_REMATCH[1]}
+  [[ ${SOAP_HOST} =~ ${l_proto}[:/]*([^:/]+) ]] && l_host=${BASH_REMATCH[1]}
+
+  local url="${SOAP_HOST}/${1}"
+  shift
+  local data="--data-urlencode \"${1}"
+  shift
+  local isKey=0
+  for args in "$@"; do
+    [[ ${isKey} -eq 1 ]] && data="${data}\" --data-urlencode \"${args}" && isKey=0 && continue
+    [[ -z $args ]] || data="${data}=${args}"
+    isKey=1
+  done
+  data="${data}\""
+  curl -s  --connect-timeout 1 -X POST \
+  --header 'Content-Type: application/x-www-form-urlencoded' \
+  --header "Cookie: __sessiontoken=${SESSION_TOKEN}" \
+  --header "X-Security-Token:${SECURITY_TOKEN}" \
+  --header 'X-Query-Source: nlclient' \
+  --header "Host: ${l_host}" \
+  --header 'Connection: keep-alive' $(xargs <<< $data) --location ${url}
 }
 function soap_rtest {
   if _CONTAINS -h "$@" ; then
@@ -3391,7 +3442,7 @@ function soapCreateTrackingInstanceShellAPI {
   iRc=$?
   [[ -z ${SESSION_TOKEN} ]] && return $iRc
   local isRemote
-  [[ $(soap_rtest 2>/dev/null | getXMLAttrVal redir sourceIP) != $(getIP) ]] && isRemote=1
+  [[ $(soap_rtest 2>/dev/null | xmlize | getXMLAttrVal redir sourceIP) != $(getIP) ]] && isRemote=1
   local TRK_INST_NAME=$1 TRK_INST_URL=$2 TRK_INST_HOST_MASK=$3 TRK_PASSWORD=$4 INTERNAL_PASSWORD=$5
   TRK_INST_NAME=${TRK_INST_NAME:=trk-inst}
   TRK_INST_URL=${TRK_INST_URL:=$(echo https://${TRK_INST_NAME}-$(hostname --fqdn))}
@@ -5418,8 +5469,8 @@ function installPython3 {
     python -m pip install --upgrade pip
     pip install setuptools wheel fire options num2words opencv-python pyttsx3 multipart numpy
   fi
-  readEx "About to update  python v3 install on wndows but outside of cygwin " 5 " seconds ..." || echo
   if [ -z "$(findW -i python3 -u python.exe)" ] || [ "X${1,,}" = "X-f" ]; then
+    readEx "About to update  python v3 install on wndows but outside of cygwin " 5 " seconds ..." || echo
     local yn
     echo "${YELLOW_COL}WARN:${RESET_COL} You are advised to un-install all older Python versions."
     read  -p "${RED_COL}ALERT:${RESET_COL} Do you want to remove Python 2.x? ([y]/n) " yn
@@ -5474,8 +5525,8 @@ function installgh {
         if isCygwin; then
             download https://github.com/cli/cli/releases/download/v${version}/gh_${version}_windows_amd64.zip /tmp/gh.zip
             pushd .
-            cd tmp
-            unzip -j -o /tmp/gh.zip bin/gh.exe
+            cd /tmp
+            unzip -j -o gh.zip bin/gh.exe
             sudo chmod 755 /tmp/gh.exe
             mv /tmp/gh.exe /usr/local/bin/
             popd > /dev/null
@@ -5802,19 +5853,25 @@ function setupDebianEnv {
     [[ $? -eq 0 ]] && TEAM_SHARE_LOCATION=${l_team_loc} && USER_SHARE_LOCATION=${l_user_loc} && TEAM_SHARE_CACHE=${l_team_cache}
   fi
 }
+function loadProcessorCount {
+  [[ $EFFECTIVE_PROCESSOR_COUNT -gt 0 ]] && return
+  cacheEnvVar -f -c EFFECTIVE_PROCESSOR_COUNT
+  if isCygwin; then
+    local get_EffectiveProcessorCmd="((Get-CimInstance Win32_Processor).NumberOfLogicalProcessors | Measure-Object -Sum).Sum"
+    [[ $PWSHELL_VERSION =~ ^5 ]] && get_EffectiveProcessorCmd="((Get-WmiObject Win32_Processor).NumberOfLogicalProcessors | Measure-Object -Sum).Sum"
+    export EFFECTIVE_PROCESSOR_COUNT=$(trim $(wps -Command ${get_EffectiveProcessorCmd}))
+  else
+    export EFFECTIVE_PROCESSOR_COUNT=$(cat /proc/cpuinfo  | grep -E "\s*processor\s+:" | wc -l)
+  fi
+  cacheEnvVar EFFECTIVE_PROCESSOR_COUNT
+}
 function makeCamp {
   local forceBuild
   local branchName
   local cleanBuild
   local freeProcessors
   local doQuiteBuild
-  if isCygwin; then
-    local get_EffectiveProcessorCmd="((Get-CimInstance Win32_Processor).NumberOfLogicalProcessors | Measure-Object -Sum).Sum"
-    [[ $PWSHELL_VERSION =~ ^5 ]] && get_EffectiveProcessorCmd="((Get-WmiObject Win32_Processor).NumberOfLogicalProcessors | Measure-Object -Sum).Sum"
-    export EFFECTIVE_PROCESSOR_COUNT=${EFFECTIVE_PROCESSOR_COUNT:=$(trim $(wps -Command ${get_EffectiveProcessorCmd}))}
-  else
-    export EFFECTIVE_PROCESSOR_COUNT=${EFFECTIVE_PROCESSOR_COUNT:=$(cat /proc/cpuinfo  | grep -E "\s*processor\s+:" | wc -l)}
-  fi
+  loadProcessorCount
   [[ $# -eq 0 ]] && echo -e "${YELLOW_COL}Usage:${RESET_COL}  ${FUNCNAME[0]} [options] [branch]\n\t[-[-]c,C (clean buld)]\n\t[-[-]f,F (force git pull and build)]\n\t[-[-]n,N (run only nlconf ..Do not build)]\n\t[-[-][q,Q (quite build)]\n\t[-[-]x,X (count of 'x' is processors(out of ${EFFECTIVE_PROCESSOR_COUNT})spared/unused while building)]\n\t[-[-]h,H (help)]" && return 1
   local doBuild=1
   while [ ! -z "$1" ]
@@ -6197,11 +6254,7 @@ function fetchEnvInfo {
 #  cmd="wps  -Command '\$p=Start-Process powershell -NoNewWindow -PassThru; Start-Sleep -Milliseconds 0; Stop-Process -ID \$p.id'"
 #  getCmdValue "$cmd" | grep "https" | sed -r 's/.*(https.*)/\1/g'
   if isCygwin; then
-    unset IDE_VERSION
-    unset VSINSTALLDIR
     getIDEVersion
-    cacheEnvVar IDE_VERSION
-    cacheEnvVar VSINSTALLDIR
   fi
   cd $CAMP_AC_ROOT/nl
   local curBranch=$(git branch --show-current)
@@ -6524,8 +6577,10 @@ function refreshEnvPath_Windows {
 }
 function setupCygwinEnv {
 ! isCygwin && return
-local runAsAdmin=$(getCmdValue "wps -Command \"[Security.Principal.WindowsIdentity]::GetCurrent().Groups -contains 'S-1-5-32-544'\"")
+local runAsAdmin='True'
+[[ "$(sed 's/.*/\U&/' <<< X${RUN_AS_ADMIN:0:1})" =~ X[Y1T] ]] || { runAsAdmin=$(trim $(wps -Command "[Security.Principal.WindowsIdentity]::GetCurrent().Groups -contains 'S-1-5-32-544'")) && [[ ${runAsAdmin,,} = "true" ]] && cacheEnvVar -f RUN_AS_ADMIN True; }
 if [[ ${runAsAdmin,,} = "false" ]]; then
+  cacheEnvVar -f -c RUN_AS_ADMIN
   echo "Start Cygwin ACC setup with ${YELLOW_COL}'Run As Admin'${RESET_COL} privilege."
   readEx "Press any key to continue... Else this terminal will Exit in " 5 " seconds."
   [[ $? -ne 0 ]] && exit
@@ -6776,6 +6831,8 @@ function getIDEVersion {
     else
       IDE_VERSION="$(gcc --version | head -1)"
     fi
+    cacheEnvVar -f IDE_VERSION
+    cacheEnvVar -f VSINSTALLDIR
   fi
   echo "$IDE_VERSION"
 }
@@ -6881,17 +6938,17 @@ function welcome {
   echo -e "Why read wiki when there is a script to guide you through campaign dev setup on \n${YELLOW_COL}$(getOS):$(head /proc/version)${RESET_COL}"
   echo "Welcome to $ORG_UNIT_NAME dev setup."
   if isCygwin; then
-    cacheEnvVar PWSHELL_VERSION $(getCmdValue "wps  -Command 'Write-Host \$PSVersionTable.PSVersion'")
+    [[ -z $PWSHELL_VERSION ]] && cacheEnvVar PWSHELL_VERSION $(trim  $(wps  -Command 'Write-Host $PSVersionTable.PSVersion'))
     echo "${GREEN_COL}INFO:${RESET_COL} Using powershell version: ${YELLOW_COL}${PWSHELL_VERSION}${RESET_COL}"
-  #  local pwlogo_cmd="wps  -Command '\$p=Start-Process $PWSHELL -NoNewWindow -PassThru; Start-Sleep -Milliseconds 0; Stop-Process -ID \$p.id'"
-    local nTrimFromBotom=3
-    if [[ $PWSHELL_VERSION =~ ^5 ]]; then
-      nTrimFromBotom=2
-    fi
-    pwlogo_cmd='wps -Command "echo Exit | Out-File -FilePath \$env:TEMP\inp.txt -encoding ASCII; Start-Process '${PWSHELL}' -NoNewWindow -RedirectStandardInput \$env:TEMP\inp.txt" | head -n -'"$nTrimFromBotom ; rm -f $TEMP/inp.txt"
-    local pwlogo="$(getCmdValue "${pwlogo_cmd}")"
-    if [ $(echo "${pwlogo}" | wc -l) -ne 4 ]; then
-      echo "${pwlogo}" | grep -E -v '^\s+$'
+    if [[ ! -z ${SHOW_POWERSHELL_BANNER} ]]; then
+    #  local pwlogo_cmd="wps  -Command '\$p=Start-Process $PWSHELL -NoNewWindow -PassThru; Start-Sleep -Milliseconds 0; Stop-Process -ID \$p.id'"
+#      local nTrimFromBottom=3
+#     [[ $PWSHELL_VERSION =~ ^5 ]] && nTrimFromBottom=2
+#      local pwlogo_cmd='wps -Command "echo Exit | Out-File -FilePath \$env:TEMP\inp.txt -encoding ASCII; Start-Process '${PWSHELL}' -NoNewWindow -RedirectStandardInput \$env:TEMP\inp.txt" | head -n -'"$nTrimFromBottom ; rm -f $TEMP/inp.txt"
+#      local pwlogo="$(getCmdValue "${pwlogo_cmd}")"
+      local pwlogo=$(wps  <<< $(echo Exit) | head -n -1)
+      echo "${pwlogo}" | grep -i upgrade > /dev/null
+      [[ $? -eq 0 ]] && echo "${pwlogo}" | grep -E -v '^\s+$'
     fi
   fi
   # getCmdValue "$cmd" | grep "https" | sed -r 's/.*(https.*)/\1/g'
@@ -6977,7 +7034,8 @@ function welcome {
   echo -e "\tNew\n\ti.  Login (okta)     :${YELLOW_COL} https://artifactory-uw2.adobeitc.com ${RESET_COL} \n\tii. Download URL     : ${YELLOW_COL}https://artifactory-uw2.adobeitc.com/artifactory/generic-campaign-acc-artifacts-release${RESET_COL}"
   echo "12. Get latest .bashrc       : ${YELLOW_COL}git clone git@git.${ADOBE_CORP_DOMAIN}:hparmar/acc-dev.git $(dirname $(getCampRoot))/acc-dev${RESET_COL}"
   echo -ne '\tStable Version       : '; echo "${YELLOW_COL}cp '${TEAM_SHARE_LOCATION}.bashrc' ~ ${RESET_COL}"
-  echo "13. Env variable 'DEFAULT_PASSWORD' sets default password used by script. Use command ${YELLOW_COL}'cacheEnvVar DEFAULT_PASSWORD xxxxxx'${RESET_COL} to set new password."
+  echo -e "13. UCO Framework\t     : ${YELLOW_COL}https://uco.adobe-campaign.com/${RESET_COL}"
+  echo "14. Env variable 'DEFAULT_PASSWORD' sets default password used by script. Use command ${YELLOW_COL}'cacheEnvVar DEFAULT_PASSWORD xxxxxx'${RESET_COL} to set new password."
   if isCygwin && [[ ! -z "${TERMINATING_CONSOLE_WIN_PID}" ]]; then
 #    ps -W | tr -s '[:blank:]' | cut -d ' ' -f5 | grep ${TERMINATING_CONSOLE_WIN_PID} > /dev/null
 #    if [ $? -eq 0 ]; then
@@ -8055,7 +8113,7 @@ function setupCampaignDevServer {
     local allowedRelayURL='<url IPMask="" deny="" hostMask="" httpAllowed="true" relayHost="true" relayPath="true"
            status="normal" targetUrl="http://localhost:8080" timeout="" urlPath="/xtk/*.jssp"/>'
     grep 'urlPath="/xtk/\*.jssp"' "$(getCampRoot)/nl/build/ncs/conf/serverConf.xml"
-    [[$? -eq 0 ]] || sed -e -i '/\/xtk\/jsp\/zoneinfo\.jsp/a\' -e "      $(echo ${allowedRelayURL} | sed 's,",\\",g')" "$(getCampRoot)/nl/build/ncs/conf/serverConf.xml"
+    [[ $? -eq 0 ]] || sed -i -e '/\/xtk\/jsp\/zoneinfo\.jsp/a\' -e "      $(echo ${allowedRelayURL} | sed 's,\",\\",g')" "$(getCampRoot)/nl/build/ncs/conf/serverConf.xml"
 
     local adb_smtpUser="$(whoami)@${ADOBE_DOMAIN}"
     if [ ! -z $(echo ${id} | grep -i "momentum") ]; then
@@ -9201,7 +9259,7 @@ function monitor {
   local bashpid=${BASHPID}
   if [[ -n ${MONITOR_WINPID} ]]; then
     if isCygwin; then
-      ps -W | tr -s ' ' | cut -d ' ' -f5,9- | grep ${MONITOR_WINPID} | grep "/usr/bin/bash" > /dev/null
+      ps -W | awk -v pid="$MONITOR_WINPID" '{$1=$2=$3=$5=$6=$7="";$0=$0;NF=NF; { if (pid == $1) print $0; } }' | grep "/usr/bin/bash" > /dev/null
       iRc=$?
     else
 #      stdbuf -oL ps -eo pid,args | stdbuf -oL grep -E "^\s*${MONITOR_WINPID}" | head -1 | grep -E "\s\-bash(\s|$)" > /dev/null
@@ -9213,6 +9271,7 @@ function monitor {
   isCygwin && { mon_bash_pid=$(ps -W | awk '{print $1" "$4;}' | grep "^${bashpid} " | head -1 | awk '{print $2;}'); true; } ||
   { mon_bash_pid=$(ps -eo pid,args | grep -E "^\s*${bashpid}" | head -1 | grep -E "\s\-bash(\s|$)" | awk '{print $1;}'); }
   cacheEnvVar -f MONITOR_WINPID ${mon_bash_pid}
+  kill -SIGUSR1 $$
   iRc=0
 
   trap '' SIGINT
@@ -9225,7 +9284,7 @@ function monitor {
 #  local prevVPNStatus=1
   local cpCmd="$(which cp) -f ${1} "
   local mvCmd="$(which mv) -f ${1} "
-  local wait_time
+  local wait_time checkUACAndFirewallTimer
   fetchEnvInfo
   fetchVPNState
   local loop=true
@@ -9263,11 +9322,11 @@ function monitor {
           done
           IFS=$l_IFS
         fi
-        local vpnIPRemote=$(grep -i --color=none "${hostnameLocal}" "${localHostsFile}"  | tr -s ' ' | cut -d ' ' -f1)
+        local vpnIPRemote=$(grep -i --color=none "${hostnameLocal}" "${localHostsFile}"  | awk '{print $1}')
         [[ $(echo "$vpnIPRemote" | wc -l) -gt 1 ]] && sed -i -r "/^[^#]*${hostnameLocal}.*/d" "${localHostsFile}" && vpnIPRemote=""
         local vpnIPLocal=$(getIP -vpn)
         # if you are in Adobenet then VPN IP will be null but you are still part this host management.
-        vpnIPLocal=${vpnIPLocal:=$(getIP)}
+        [[ -z $vpnIPLocal ]] && getIP > /dev/null && vpnIPLocal=$(getIP)
         # update hosts.txt file with new information about this host.
         local mtime=$(date '+%d%b%Y_%H_%M_%S_%s')
         if [[ -z "${vpnIPRemote}" ]]; then
@@ -9323,8 +9382,12 @@ function monitor {
         [[ $iRc -eq  1 ]] && echo "Removing old entries from ${SYS_HOSTS_FILE}" && ${mvCmd} ${localHostsFile} ${SYS_HOSTS_FILE} && fetchVPNState
     fi
     fetchEnvInfo
+    if isCygwin; then
+      # Wait for 10 wait periods(5 mins), before calling disableUACAndFirewall once again.
+      [[ -n ${checkUACAndFirewallTimer} ]] && checkUACAndFirewallTimer=$[${checkUACAndFirewallTimer}+1] && [[ ${checkUACAndFirewallTimer} -gt 10 ]] && unset checkUACAndFirewallTimer
+      [[ -z ${checkUACAndFirewallTimer} ]] && [[ "$(sed 's/.*/\U&/' <<< X${EXPERT_MODE:0:1})" =~ X[Y1T] ]] && disableUACAndFirewall && checkUACAndFirewallTimer=1
+    fi
     wait_time=$[$(date '+%s')-${wait_time}]
-    isCygwin && [[ "$(sed 's/.*/\U&/' <<< X${EXPERT_MODE:0:1})" =~ X[Y1T] ]] && disableUACAndFirewall
     [[ ${wait_time} -lt 30 ]] && { [[ X${1,,} = "X-v" ]] && unset loop && echo "Going idle for next $[30-${wait_time}] seconds" || sleep $[30-${wait_time}]; }
   done
   popd
@@ -9344,10 +9407,15 @@ if isCygwin; then
     fi
     cacheEnvVar TERMINATING_CONSOLE_WIN_PID $(getCmdValue 'wps -Command "${getParentPid_Cmd}"')
   fi
+  local pwlogo=$(wps  <<< $(echo Exit) | head -n -1)
+  echo "${pwlogo}" | grep -i upgrade > /dev/null
+  [[ $? -eq 0 ]] && cacheEnvVar SHOW_POWERSHELL_BANNER 1 || cacheEnvVar -f -c SHOW_POWERSHELL_BANNER
+
+  [[ $(trim $PWSHELL_VERSION) = $(trim  $(wps -Command 'Write-Host $PSVersionTable.PSVersion')) ]] || cacheEnvVar -f -c PWSHELL_VERSION
   local NL_PID=$(jobs -l | grep watchdog | awk '{print $2}') && [[ ! -z ${NL_PID} ]] && stopCampaign
 #  [[ ! -z ${NL_VIRTUAL_PPID+x} &&  ${NL_VIRTUAL_PPID} -eq $$ ]] && cacheEnvVar -f -c NL_VIRTUAL_PPID && stopCampaign
   local SLEEP_PID=$(ps -e | grep sleep | awk '{print $1}') && [[ ! -z ${SLEEP_PID} ]] && kill -TERM ${SLEEP_PID}
-  local MONITOR_PID=$(jobs -l | grep monitor | awk '{print $2}') && [[ ! -z ${MONITOR_PID} ]] && kill -KILL ${MONITOR_PID} && rm -f /var/tmp/badurls.lock
+  local MONITOR_PID=$(jobs -l | grep monitor | awk '{print $2}') && [[ -n ${MONITOR_PID} ]] && kill -KILL ${MONITOR_PID} && rm -f /var/tmp/badurls.lock
 }
 trap on_exit EXIT
 # trap on_exit SIGHUP
@@ -9471,7 +9539,7 @@ function disableUACAndFirewall {
   isCygwin || { echo "${FUNCNAME[0]} Not available on $(getOS)" | STDERR || return $?; }
   local uac_query_cmd='(Get-ItemProperty -Path "HKLM:\Software\Microsoft\Windows\CurrentVersion\Policies\System" -Name "ConsentPromptBehaviorAdmin").ConsentPromptBehaviorAdmin'
 #  [[ 0 -eq $(REG QUERY 'HKLM\Software\Microsoft\Windows\CurrentVersion\Policies\System' /v ConsentPromptBehaviorAdmin | tail -2 | head -1 | rev | cut -d ' ' -f1 | h2d) ]] && return
-  [[ "$(getCmdValue 'wps -Command ${uac_query_cmd}')" -eq 0 ]] || {
+  [[ $(trim $(wps -Command ${uac_query_cmd})) -eq 0 ]] || {
   local disableUAC_Command='Set-ItemProperty -Path "HKLM:\Software\Microsoft\Windows\CurrentVersion\Policies\System" -Name "ConsentPromptBehaviorAdmin" -Value "0"; Set-ItemProperty -Path "HKLM:\Software\Microsoft\Windows\CurrentVersion\Policies\System" -Name "ConsentPromptBehaviorUser" -Value "0"; Set-ItemProperty -Path "HKLM:\Software\Microsoft\Windows\CurrentVersion\Policies\System" -Name "EnableLUA" -Value "1"; Set-ItemProperty -Path "HKLM:\Software\Microsoft\Windows\CurrentVersion\Policies\System" -Name "PromptOnSecureDesktop" -Value "0"';
   wps -Command "Start-Process -WindowStyle Hidden $PWSHELL  -ArgumentList '-Command \"${disableUAC_Command}\"' -Verb RunAs"; }
   local disableFW_Command='Set-NetFirewallProfile -Enabled False'
@@ -9551,13 +9619,7 @@ function white-board-cleaner {
 }
 function generateHits {
   _CONTAINS -h "$@" || _CONTAINS -? "$@" || [[ $# -eq 0 ]] && { echo "${YELLOW_COL}Usage:${RESET_COL}:  ${FUNCNAME[0]} -[ h | ? ] [-d (dump_urls_to_stdout(do not generate Hits)) ] [ -s <size> (curl batch size) ] [ <file-name|folder-name> ]"; echo "${GREEN_COL}INFO:${RESET_COL} On 16 core, no VPN, cygwin ${YELLOW_COL}generateHits -s 64 urls.txt${RESET_COL} (url count=5120, https://localhost/index.html) took 6 seconds."; return 1; }
-  if isCygwin; then
-    local get_EffectiveProcessorCmd="((Get-CimInstance Win32_Processor).NumberOfLogicalProcessors | Measure-Object -Sum).Sum"
-    [[ $PWSHELL_VERSION =~ ^5 ]] && get_EffectiveProcessorCmd="((Get-WmiObject Win32_Processor).NumberOfLogicalProcessors | Measure-Object -Sum).Sum"
-    export EFFECTIVE_PROCESSOR_COUNT=${EFFECTIVE_PROCESSOR_COUNT:=$(trim $(wps -Command ${get_EffectiveProcessorCmd}))}
-  else
-    export EFFECTIVE_PROCESSOR_COUNT=${EFFECTIVE_PROCESSOR_COUNT:=$(cat /proc/cpuinfo  | grep -E "\s*processor\s+:" | wc -l)}
-  fi
+  loadProcessorCount
   local totalHits=0 successCount=0 iRc=0 max_workers=${EFFECTIVE_PROCESSOR_COUNT} pending_urls_count=0
   [[ ${max_workers} -gt 2 ]] && max_workers=$[${max_workers}-2]
   local UNITS_ONE_WORKER=$(_KEY_HAS_VALUE -s $@)
@@ -9697,9 +9759,9 @@ _TE bashrc_script $LINENO
 [[ $(( BOOT_OPTIONS & 2 )) -ne 0 ]] && welcome &
 [[ $(( BOOT_OPTIONS & 4 )) -ne 0 ]] && getDatabaseType &
 _TE bashrc_script $LINENO
-isCygwin && renice -n -20 -p ${BASHPID} > /dev/null || sudo renice -n -20 -p ${BASHPID} > /dev/null
+# isCygwin && renice -n -20 -p ${BASHPID} > /dev/null || sudo renice -n -20 -p ${BASHPID} > /dev/null
 initBuildEnv > /dev/null
-isCygwin && renice -n 0 -p ${BASHPID} > /dev/null || sudo renice -n 0 -p ${BASHPID} > /dev/null
+# isCygwin && renice -n 0 -p ${BASHPID} > /dev/null || sudo renice -n 0 -p ${BASHPID} > /dev/null
 # initBuildEnvPID="$!"
 # renice -n -20 -p ${initBuildEnvPID} > /dev/null
 if [[ ${BOOT_OPTIONS} -ne 0 ]]; then
@@ -10195,5 +10257,6 @@ if [[ $(( BOOT_OPTIONS & 8 )) -ne 0 ]]; then
   disown $!
 fi
 [[ -f ~/.after.sh ]] && source ~/.after.sh
+trap 'cacheEnvVar -r MONITOR_WINPID' SIGUSR1
 monitor > /dev/null 2>&1 &
 _TE bashrc_script $LINENO
