@@ -1,5 +1,4 @@
 # To the extent possible under law, the author(s) have dedicated all
-# To the extent possible under law, the author(s) have dedicated all
 # copyright and related and neighboring rights to this software to the
 # public domain worldwide. This software is distributed without any warranty.
 # You should have received a copy of the CC0 Public Domain Dedication along
@@ -21,6 +20,11 @@ export BOOT_OPTIONS=${BOOT_OPTIONS:=255}
 function initTermColors {
   local COLORS=$(tput colors 2> /dev/null)
   if [ $? = 0 ] && [ $COLORS -gt 8 ]; then
+    # for c in {255..0}  ; do tput setaf $c; printf "%03d " $c     ; [[ $[256-$c] -eq $[((256-$c)/24)*24] ]] && echo; done; echo # ALL 256
+    # for c in {1..8}    ; do tput setaf $c; printf "%03d " $[$c-1]; [[ $[$c] -eq $[($c/8)*8] ]] && echo; done                   # STANDARD
+    # for c in {9..16}   ; do tput setaf $c; printf "%03d " $[$c-1]; [[ $[$c-8] -eq $[(($c-8)/8)*8] ]] && echo; done             # HIGH INTENSITY
+    # for c in {17..232} ; do tput setaf $c; printf "%03d " $[$c-1]; [[ $[$c-16] -eq $[(($c-16)/36)*36] ]] && echo; done;        # Colors
+    # for c in {233..256}; do tput setaf $c; printf "%03d " $[$c-1]; [[ $[$c-232] -eq $[(($c-232)/36)*36] ]] && echo; done; echo # GRAYSCALE
     # function blink {
       # local YELLOWIT="\e[1;3;5;43m";
       # for i in $(seq 1 1 100);
@@ -86,13 +90,13 @@ function initTermColors {
   fi
 }
 initTermColors
-export VAULT_ADDR='https://vault.or1.adobe.net'
+export VAULT_ADDR='https://vault-amer.adobe.net'
 export VAULT_CAMP_PATH='secret/campaign/techops-secrets/mdp/provisioning/tenant/'
 export MASTER_BRANCH="v6-master"
 export ADOBE_DOMAIN='adobe.com'
 export ADOBE_CORP_DOMAIN="corp.${ADOBE_DOMAIN}"
 export HOSTED_CAMPAIGN_DOMAIN="campaign.${ADOBE_DOMAIN}"
-export TEAM_SHARE_SERVER=indshare.${ADOBE_CORP_DOMAIN}
+export TEAM_SHARE_SERVER=indstore.${ADOBE_CORP_DOMAIN}
 export TEAM_SHARE_LOCATION=${TEAM_SHARE_LOCATION:='\\'${TEAM_SHARE_SERVER}'\share\campaign_acc_india_mustang\dev\setup\'}
 export TEAM_SHARE_CACHE=${TEAM_SHARE_CACHE:='\\'${TEAM_SHARE_SERVER}'\share\campaign_acc_india_mustang\dev\cache\'}
 export USER_SHARE_LOCATION=${USER_SHARE_LOCATION:='\\'${TEAM_SHARE_SERVER}'\users\'$(printf '%c' $(whoami) | tr [a-z] [A-Z])'\'$(whoami)'\'}
@@ -143,10 +147,10 @@ shopt -s extglob # Reqd for sudo rm -rf /tmp/!(.|..|bkp) in openTerm function at
 export HISTCONTROL=$HISTCONTROL${HISTCONTROL+,}ignoredups
 #
 # Ignore some controlling instructions
-# HISTIGNORE is a colon-delimited list of patterns which should be excluded.
-# The '&' is a special pattern which suppresses duplicate entries.
+# HISTIGNORE is a colon-delimited list of patterns to be excluded.
+# The '&' is a special pattern that suppresses duplicate entries.
 # export HISTIGNORE=$'[ \t]*:&:[fb]g:exit'
-export HISTIGNORE=$'[ \t]*:&:[fb]g:exit:pwd:cd:h:dv:c:o:2*'
+export HISTIGNORE=$'[ \t]*:&:exit:dv:c:o:'
 #
 # Whenever displaying the prompt, write the previous line to disk
 # export PROMPT_COMMAND="history -a"
@@ -253,21 +257,6 @@ function load {
 function fCount {
   function __count { echo $#; }
   (shopt -s nullglob; __count $1/*)
-}
-
-function history2 {
-  for arg do
-    if [ "$arg" = "-c" ]; then
-      rm -f ${HISTFILE}
-      for i in "$( (set -o posix ; set) | grep ^HIST)"; do
-        local cmd=$(echo $i | sed -r 's/\=.*$//g')
-        unset $cmd
-      done
-    fi
-    shift
-    set -- "$@" "$arg"
-  done
-  history "$@"
 }
 
 # a is ARRAY: a=(one two three) _indexof three ${a[@]} will return 2.
@@ -377,7 +366,7 @@ function sedml {
 }
 function flushInput {
     local attempts=16
-    while read -r -t 0; do read -r; attempts=$[${attempts}-1]; [[ $attempts -eq 0 ]] && { [[ "$(sed 's/.*/\U&/' <<< X${EXPERT_MODE:0:1})" =~ X[Y1T] ]] && echo "Script execution currently in function ${FUNCNAME[1]}" || echo ""; } && break; done;
+    while read -r -t 0; do read -r; attempts=$[${attempts}-1]; [[ $attempts -eq 0 ]] && { [[ "$(sed 's/.*/\U&/' <<< X${EXPERT_MODE:0:1})" =~ X[Y1T] ]] && echo "Script execution currently in function ${FUNCNAME[1]}" || echo; } && break; done;
 }
 # function h2d {
   # echo "ibase=16; $@"|bc
@@ -432,21 +421,43 @@ function d2h {
     done
   fi
 }
+
+function secondsToDuration {
+  _MATCHES '^(-|/)(h|\?)' && echo "${YELLOW_COL}Usage:${RESET_COL}  ${FUNCNAME[0]} [[-h(elp) -r(hours) -m(inutes)] <time-in-seconds> ... Or PIPE-IN" && return 1
+  local fmt="%dd-%dh-%dm-%ds " hours mins days=1
+  _MATCHES '^(-|/)r' "$@" && fmt="%dh-%dm-%ds " && hours=1 && shift && unset days
+  _MATCHES '^(-|/)m' "$@" && fmt="%dm-%ds " && mins=1 && shift && unset days
+  local input="$([[ -p /dev/stdin ]] && cat - || echo "$@")"
+  if [[ -n "$input" ]]; then
+    for s in $input; do
+      s=${s//,/} # remove any  commas.
+      s=${s//+/} # remove any  + sign.
+      s=${s%%.*} # remove any (.)decimal/fractional part or Mantissa.
+      [[ -n ${hours} ]] && printf "${fmt}" $((s/3600)) $(((s%3600)/60)) $((s%60))
+      [[ -n ${mins} ]] && printf "${fmt}" $((s/60)) $((s%60))
+      [[ -n ${days} ]] && printf "${fmt}" $((s/86400)) $(((s%86400)/3600)) $(((s%3600)/60)) $((s%60))
+    done
+  fi
+}
+
 function xt {
   export FMT=${FMT:="+%Y-%m-%d %H:%M:%S %:z"}
-  _MATCHES '(-|/)h' "$@" || _MATCHES '^(-|/)\?' "$@" || [[ $# -eq 0 ]] && { echo "${YELLOW_COL}Usage:${RESET_COL} ${FUNCNAME[0]} <function> [-h(elp)] [from-time-zone(default ${YELLOW_COL}${TZ}${RESET_COL})] <to-timezone> [time (in format recognized by date command e.g ${YELLOW_COL}YYYY-MM-DD HH:MM:SS TZ${RESET_COL} if format is ${YELLOW_COL}${FMT}${RESET_COL})]"; echo "Modify env variable ${YELLOW_COL}FMT${RESET_COL} to choose a different output format."; complete  -W "$( (cd /usr/share/zoneinfo/posix/ && find -L . -type f) | sed 's,./,,' | xargs)" ${FUNCNAME[0]}; return 1; }
+  _MATCHES '^(-|/)(h|\?)' "$@" || [[ $# -eq 0 ]] && { echo "${YELLOW_COL}Usage:${RESET_COL} ${FUNCNAME[0]} <function> [-h(elp)] [from-time-zone(default ${YELLOW_COL}${TZ}${RESET_COL})] <to-timezone> [time (in format recognized by date command e.g ${YELLOW_COL}YYYY-MM-DD HH:MM:SS TZ${RESET_COL} if format is ${YELLOW_COL}${FMT}${RESET_COL})]"; echo "Modify env variable ${YELLOW_COL}FMT${RESET_COL} to choose a different output format."; local tzDir='/usr/share/zoneinfo/posix/'; [[ ! -d ${tzDir} ]] && tzDir="$(dirname ${tzDir})"; complete -W "$( (cd ${tzDir} && find -L . -type f) | sed 's,./,,' | xargs)" ${FUNCNAME[0]}; return 1; }
 
+  local tzDir='/usr/share/zoneinfo/posix/'
+  [[ ! -d ${tzDir} ]] && tzDir="$(dirname ${tzDir})"
   function __adjustTZ {
     [[ -z $1 ]] && return
     local l_tz=$1
+
     [[ $l_tz =~ ^[0-9] ]] && l_tz="+${l_tz}"
     [[ $l_tz =~ ^[-+] ]] && l_tz="UTC${l_tz}"
     [[ $l_tz =~ [-+][0-9] ]] && l_tz=$(echo $l_tz | tr "+-" "-+") || {
       local l
       if [[ ${l_tz} =~ / ]]; then
-        l=$((cd /usr/share/zoneinfo/posix/ && find -L . -type f) | sed 's,./,,' | grep -E "^${l_tz}$")
+        l=$((cd ${tzDir} && find -L . -type f) | sed 's,./,,' | grep -E "^${l_tz}$")
       else
-        l=$((cd /usr/share/zoneinfo/posix/ && find -L . -type f) | sed 's,./,,' | grep "${l_tz}" | head -n 1)
+        l=$((cd ${tzDir} && find -L . -type f) | sed 's,./,,' | grep "${l_tz}" | head -n 1)
       fi
       l_tz=$l
     }
@@ -589,19 +600,106 @@ function bindInRange {
   local input="$([[ -p /dev/stdin ]] && cat - || echo "$@")"
   echo "${input}" | lBound ${lB} | uBound ${uB}
 }
-# generates a 1 byte XOR from input string(s).can be used to generate a unique 1 byte hash.
-function XOR {
-  local input="$([[ -p /dev/stdin ]] && cat - || echo "$@")"
-  if [[ -n "$input" ]]; then
-    for s in $input; do
-      local res=0 b
-      for (( i=0; i<${#s}; i++ )); do
-        b=$(ascii "${s:$i:1}" -i | awk '{print $2}')
-        res=$(printf "$(( ${res} ^ ${b} ))")
-      done
-      echo $res
+# isSecondVersionNewer: true if the second version is strictly greater than the first, false otherwise.
+# Usage: isSecondVersionNewer <current_version> <candidate_version>
+function isSecondVersionNewer {
+    local first=${1%%[a-zA-Z]*} second=${2%%[a-zA-Z]*}
+    while [[ -n $first || -n $second ]]; do
+        local fnum=${first%%.*}
+        local snum=${second%%.*}
+        [[ -z $fnum ]] && fnum=0
+        [[ -z $snum ]] && snum=0
+
+        if (( snum > fnum )); then
+            true; return  # second version is higher → true (exit code 0)
+        elif (( snum < fnum )); then
+            break;  # first version is higher → exit loop early
+        fi
+
+        first=${first#*.}; [[ $first == "$fnum" ]] && first=""
+        second=${second#*.}; [[ $second == "$snum" ]] && second=""
     done
-  fi
+    false  # After loop (either loop ended normally or via break), return false.
+}
+
+
+
+
+function history2 {
+  local args=()  # Store remaining arguments
+  for arg; do
+    if [[ ${arg} = "-c" ]]; then
+      rm -f ${HISTFILE}
+      for i in "$( (set -o posix ; set) | grep ^HIST)"; do
+        local cmd=$(echo $i | sed -r 's/\=.*$//g')
+        unset $cmd
+      done
+      args+=("$arg")
+    elif [[ ${arg} =~ ^-d[:0-9]+$ ]]; then
+      local s=${arg%%:*} e=${arg##*:}
+      s=${s:2}
+      s=${s:=$HISTCMD}
+      e=${e:=$HISTCMD}
+      s=$(bindInRange -${HISTCMD} ${HISTCMD} $s)
+      e=$(bindInRange -${HISTCMD} ${HISTCMD} $e)
+      for i in $(seq $e -1 $s); do
+        history -d $i
+      done
+    else
+      args+=("$arg")  # Collect valid arguments
+    fi
+  done
+
+  history "${args[@]}"  # Pass only valid arguments to history
+}
+
+#  https://phoenixnap.com/kb/bash-associative-array
+function squeezeSQL {
+  local input="$([[ -p /dev/stdin ]] && cat - || echo "$@")"
+  local fromClause="$(echo "${input}" | awk -v FS="( FROM | WHERE )" '{print $2}' | sed 's, JOIN ,\nJOIN ,g')"
+  declare -A tableAliases
+  local aliases=()
+  local lastTable
+  local index=0
+  for t in $(echo "${fromClause}" | sed -r 's, ON .*,,g' | awk '{print $2" "$3;}' | sort | tr '[:blank:]' ','); do
+    if [[ -z ${lastTable} || X${t%%,*} = X${lastTable} ]]; then
+      aliases[${index}]=${t##*,}
+      index=$[${index}+1]
+    else
+      tableAliases[${lastTable}]="${aliases[@]}"
+      unset aliases
+      aliases=()
+      index=0
+      aliases[${index}]=${t##*,}
+      index=$[${index}+1]
+    fi
+    lastTable=${t%%,*}
+  done
+  tableAliases["${lastTable}"]="${aliases[@]}"
+  for key in ${!tableAliases[@]}; do
+#    echo "${key} : ${tableAliases[${key}]}"
+    aliases="${tableAliases[${key}]}"
+    local baseAlias
+    for al in ${aliases[@]}; do
+      if [[ -z ${baseAlias} ]]; then
+        baseAlias=$al
+      else
+#        echo "Replacing $al with $baseAlias"
+        local temp="$(echo "${input}" | sed -r "s,${al},${baseAlias},g")"
+        input="${temp}"
+      fi
+    done
+    unset baseAlias
+  done
+  # Find out new FROM Clause from the modfied input.
+  fromClause="$(echo "${input}" | awk -v FS="( FROM | WHERE )" '{print $2}' | sed 's, JOIN ,\nJOIN ,g')"
+  #Remove duplciates from the new FROM clause.
+  local trimmedFROMClause="$({ echo  "$fromClause" | grep -v " ON "; echo  "$fromClause" | grep " ON " | sort | uniq; } | tr '\n' ' ')"
+  # echo "Modified/trimmed FROM Clause: ${trimmedFROMClause}"
+  # #> echo "P1 P3 P4 P2 P2 P1 P0 P2 P1 P2 P1 P1 Pxxx P2 P3" | perl -pe '$n=3; $count=0; s/((?<=P1).*?(?=P2))/++$count==$n?"__replacedText__":$1/ge'
+  # P1 P3 P4 P2 P2 P1 P0 P2 P1__replacedText__P2 P1 P1 Pxxx P2 P3
+  # Above replaces 3rd occurance of P1...P2 with __replacedText__
+  echo "${input}" | perl -pe  "s/(?<= FROM ).*?(?= WHERE )/${trimmedFROMClause}/"
 }
 
 # reverse_word_order
@@ -653,7 +751,7 @@ function rwo {
   # echo ${time_To_Sleep}
 # }
 function readEx {
-# Pressing Ctrl+C midway or allowing the timeout counter to run though to 0. In both cases this function returns an error code.
+# Pressing Ctrl+C midway or allowing the timeout counter to run though to 0. In both cases this function returns an error code(a non-zero return value).
   local firstArg="$1"
   shift
   local secondArg="$1"
@@ -675,7 +773,7 @@ function readEx {
       if [[ $n =~ ^9*$ ]]; then
         indent=${indent}" "
       fi
-      echo -ne "\r${firstArg}${indent}${RED_COL}${n}${RESET_COL}""$@""\t${paused}"
+      >&2 echo -ne "\r${firstArg}${indent}${RED_COL}${n}${RESET_COL}""$@""\t${paused}"
       paused=$(trim ${paused})
       [[ -z ${paused} ]] && n=$(expr $n - 1)
       read -t ${time_To_Sleep} -d'' -s -n1
@@ -685,7 +783,7 @@ function readEx {
           # Is A SpaceBar
           [[ -z $(trim ${paused}) ]] && paused='Paused...' || paused='         '
         else
-          echo "$REPLY"
+          >&2 echo "$REPLY"
           return 0
         fi
       fi
@@ -983,12 +1081,12 @@ function getXMLAttrVal {
       [[ ! -t 0 ]] && INPUT=$(cat)
       ;;
     *)
-      echo "${YELLOW_COL}Usage:${RESET_COL}:  ${FUNCNAME[0]} <XML-tag> <XML-tag-attribute> [NthOccurrence...1-9] <file-path>"
+      echo "${YELLOW_COL}Usage:${RESET_COL}:  ${FUNCNAME[0]} <XML-tag> <XML-tag-attribute> [NthOccurrence...1-999 | . (for printing all) )] <file-path>"
       return 1
       ;;
   esac
 
-  [[ $NthOccurrence =~ ^-([1-9])$ ]] && { useXMLLint && NthOccurrence="last()-$[${BASH_REMATCH[1]}-1]"; } || [[ $NthOccurrence =~ ^[1-9]$ ]] || { echo "Bad value of occurence param '$NthOccurrence'. It must be an (+-)integer between 1-9." | STDERR || return 2; }
+  [[ $NthOccurrence =~ ^-([1-9][0-9]*)$ ]] && { useXMLLint && NthOccurrence="last()-$[${BASH_REMATCH[1]}-1]"; } || [[ $NthOccurrence =~ ^[1-9][0-9]*$ ]] || { useXMLLint && [[ $NthOccurrence = '.' ]]; } || { echo "Bad value of occurence param '$NthOccurrence'. It must be an (+-)integer between 1-999." | STDERR || return 2; }
   if [[ ! -z ${INPUT} ]]; then
     # INPUT is read from pipe.
     if useXMLLint; then
@@ -1118,7 +1216,7 @@ function cacheEnvVar {
     [[ $? -eq 0 ]] && return 0
     # if key value is there but value is different, but force flag is not on, then
     # comment out the key first before inserting new key value pair.
-    value=$(echo $value | sed -r 's,[^\\]\\$,\\\\,g')
+    value=$(echo $value | sed -r 's,([^\\])\\$,\1\\\\,g')
     export ${key}="${value}"
     cat ~/.before.sh | grep -E "^[[:space:]]*export[[:space:]]+${key}=" > /dev/null
     if [ $? -eq 0 ]; then
@@ -1136,6 +1234,7 @@ function isWSL { false; }
 uname -r | grep -i WSL > /dev/null && function isWSL { true; }
 if [[ ${OSTYPE} = "cygwin" ]]; then
   function isCygwin { true; }
+  export TZ=${TZ:=$(timedatectl show --value -p Timezone)}
 else
   [[ -z $TMP ]] && cacheEnvVar TMP /tmp
   export TEMP=${TEMP:=${TMP}}
@@ -1231,25 +1330,64 @@ function execute_with_UserInteraction {
 
 # First argument is Url, second(optional) argument is output file name.
 function download {
-  if [ $# -lt 1 -o $# -gt 2 ]; then
-        echo "${YELLOW_COL}Usage${RESET_COL}: ${FUNCNAME[0]} <http-url> [dest-file-path]
+  local useDefaultBrowser verbose help useHostBrowser
+  ! isCygwin && [[ -n $WSLENV && -n $DLHOST ]] && useHostBrowser=1 && useDefaultBrowser=1
+  _CONTAINS -d "$@" && useDefaultBrowser=1
+  _CONTAINS -v "$@" && verbose=1
+  _CONTAINS -h "$@" && help=1
+  for arg in $@; do
+    [[ $arg =~ ^- ]] && shift || break
+  done
+  [[ $# -lt 1 || $# -gt 3 ]] && help=1
+  if [[ -n $help ]]; then
+        echo "${YELLOW_COL}Usage${RESET_COL}: ${FUNCNAME[0]} [-d(use default browser to download stuff)] [-h(elp)] <http-url> [dest-file-path]
             http-url          ${YELLOW_COL}Mandatory${RESET_COL} URL to download from.
             dest-file-path    ${GREEN_COL}Optional${RESET_COL}  Local destination file path.
                                                        default destination folder is current folder on local machine
                                                        and file name is as specified in URL" | STDERR
     return 1
   fi
-  local destFile=$2;
+  local destFile=$2
   [[ ! -z ${destFile} ]] && destFile=$(realpath -m "${destFile}")
   [[ -z ${destFile} ]] && destFile="$PWD/${1##*/}"
-  [[ -f ${destFile} ]] && echo "${YELLOW_COL}${destFile}${RESET_COL} already exists..Remove it to download afresh." && return 0
+  [[ -f ${destFile} ]] && echo "${YELLOW_COL}${destFile}${RESET_COL} file already exists..Remove it to download afresh." && return 0
   local iRc=0
   echo "${YELLOW_COL}${1}${RESET_COL} => ${GREEN_COL}${destFile}${RESET_COL} ..."
-  if exec_command_exists curl; then
+  if [[ -n ${useDefaultBrowser} ]]; then
+    local downloadFolder=$(getUsersFolder Downloads)
+    [[ -n $verbose ]] && printf "${GREEN_COL}INFO:${RESET_COL} $(date '+%H:%M:%S %p : ') Using default browser...Expecting download into ${downloadFolder}\n" | STDINFO
+    local assetName=${1##*/}
+    [[ -e ${downloadFolder}/${assetName} ]] && \mv -f -v ${downloadFolder}/${assetName} ${downloadFolder}/${assetName%%.*}_$(stat -c '%Y' ${downloadFolder}/${assetName}).${assetName##*.} > /dev/tty
+    local powerShell='wps'
+    if [[ -n ${useHostBrowser} ]]; then
+      local windowsOSDrive=$(for d in {a..z}; do [[ -d /mnt/${d}/Windows/System32 ]] && echo $d && break; done)
+      powerShell="/mnt/${windowsOSDrive}/Windows/System32/WindowsPowerShell/v1.0/powershell.exe"
+    fi
+    ${powerShell} -Command "Start-Process $1"
+    local found=0 secondToSleep=1 totalWaitTime=0 continueWait downloadCount
+    while [[ $found -eq 0 ]]; do
+      downloadCount=$(find ${downloadFolder} -mmin -$[(${secondToSleep}/60)+1] -type f | wc -l)
+      found=$(find ${downloadFolder} -mmin -$[(${secondToSleep}/60)+1] -type f -name "*${assetName}*" | wc -l)
+      if [[ $found -eq 0 ]]; then
+        flushInput
+        [[ ${secondToSleep} -gt 60 ]]  && { [[ $downloadCount -gt 0 ]] && readEx "$totalWaitTime seconds elapsed, but download has not finished yet..Press any key in " ${secondToSleep} " seconds to continue waiting...Else it shall be treated as failed download" && { echo | STDINFO; } && continueWait=1;  [[ -n ${continueWait} ]] && totalWaitTime=$[${totalWaitTime}+${secondToSleep}] || found=-1; secondToSleep=1; }
+        secondToSleep=$[secondToSleep * 2]
+        [[ $found -eq 0 ]] && sleep ${secondToSleep} && totalWaitTime=$[totalWaitTime+${secondToSleep}]
+        [[ -n $verbose ]] && printf "\r${GREEN_COL}INFO:${RESET_COL} ${totalWaitTime} seconds elapsed..." | STDINFO
+      fi
+    done
+    echo | STDINFO
+    if [[ $found -eq 1 ]]; then
+      \mv -f $(find ${downloadFolder} -mmin -$[(${secondToSleep}/60)+1] -name "*${assetName}*" | head -n 1) ${destFile}
+    else
+      echo "Download of ${assetName} failed." | STDERR
+      return 1
+    fi
+  elif exec_command_exists curl; then
     http_ret_Code=$(curl -L $1 -r 0-512 -s -o /dev/null -w '%{http_code}')
     if [[ $http_ret_Code =~ ^[2,3][[:digit:]]+$ ]]; then
-      if isCygwin && [[ $(which curl | cut -d '/' -f2) == "cygdrive" ]]; then
-        echo "${YELLOW_COL}Using Windows curl ${RESET_COL}"
+      if isCygwin && [[ $(type -P curl | cut -d '/' -f2) == "cygdrive" ]]; then
+        [[ -n $verbose ]] && echo "${YELLOW_COL}Using Windows curl ${RESET_COL}"
         curl -L $1 -o "$(native "${destFile}")"
       else
         curl -L $1 -o ${destFile}
@@ -1297,6 +1435,26 @@ function getPlatformPath {
     echo "${cyg_unix_path}/"
   fi
 }
+function proxy {
+  [[ $# -eq 0 ]] && { [[ -n ${http_proxy} ]] && echo "Proxy Enabled" | STDINFO || echo "Proxy Disabled" | STDWARN; return; }
+  [[ ${1,,} = "on" || "$(sed 's/.*/\U&/' <<< X${1:0:1})" =~ X[Y1TE] ]] || { unset no_proxy http_proxy https_proxy HTTP_PROXY HTTPS_PROXY; echo "Proxy Disabled" | STDWARN; return ; }
+  [[ -n $PROXY_URL ]] || { echo "${RED_COL}ALERT:${RESET_COL} Undefined ${YELLOW_COL}PROXY_URL${RESET_COL} enviroment variable "; return 1; }
+  local l_proto l_host l_port
+  [[ $PROXY_URL =~ ([^:/]+)[:/]{2,} ]] && l_proto=${BASH_REMATCH[1]}
+  [[ $PROXY_URL =~ ${l_proto}[:/]*([^:/]+) ]] && l_host=${BASH_REMATCH[1]}
+  [[ $PROXY_URL =~ ${l_proto}[:/]*[^:]+[:]?([[:digit:]]*) ]] && l_port=${BASH_REMATCH[1]}
+  [[ -n ${l_proto} && -n ${l_host} && ${l_port} ]] || { echo "${RED_COL}ALERT:${RESET_COL} Malformed proxy URL ${YELLOW_COL}${PROXY_URL}${RESET_COL}"; return 2; }
+
+  isPortListening ${l_port} ${l_host} || { echo "${RED_COL}ALERT:${RESET_COL} Proxy server ${YELLOW_COL}${PROXY_URL}${RESET_COL} is unresponsive!"; return 3; }
+  export http_proxy=${PROXY_URL}
+  export https_proxy=${PROXY_URL}
+  export HTTP_PROXY=${PROXY_URL}
+  export HTTPS_PROXY=${PROXY_URL}
+  export no_proxy="localhost,127.0.0.1"
+
+  echo "Proxy Enabled" | STDINFO
+}
+
 [[ -f ~/.git-completion.bash ]]   && . ~/.git-completion.bash && ___git_complete g __git_main
 [[ ! -z ${ENABLE_GIT_PS1} ]] && [[ -f ~/.git-prompt.bash ]]   && . ~/.git-prompt.bash
 # Available GIT_PS1 options/env vars
@@ -1598,23 +1756,28 @@ if isCygwin; then
 else
   function fixresolvConf {
     add2HostsFile $(hostname) $(getIP)
-    local rtt nsCount=$(cat /etc/resolv.conf | grep -E "\s*nameserver" | wc -l)
-    for h in $(cat /etc/resolv.conf | awk '{print $2;}'); do
+    local nameserverConfFile=$(realpath /etc/resolv.conf) nsCount=$(cat ${nameserverConfFile} | grep -E "\s*nameserver" | wc -l) rtt
+    cat ${nameserverConfFile} | grep -E "\s*#\s*" > /tmp/resolv.conf
+    for h in $(cat ${nameserverConfFile} | grep -E "\s*nameserver" | awk '{print $2;}'); do
       rtt=$(eval timeout 1 ping -c 1 -q $h | grep rtt | awk '{print $4;}' | awk -F'/' '{print $1;}' 2> /dev/null)
       [[ -z $rtt ]] && rtt=10000 && nsCount=$[${nsCount}-1]
       echo $rtt $h
-    done | sort -n | awk '{print "nameserver",$2}' > /tmp/resolv.conf
-    [[ ${nsCount} -eq 0 ]] || cmp -s /tmp/resolv.conf /etc/resolv.conf && return
-    sudo mv /tmp/resolv.conf /etc/resolv.conf
+    done | sort -n | awk '{print "nameserver",$2}' >> /tmp/resolv.conf
+    cat /etc/resolv.conf | grep -E -v "\s*#\s*" | grep -v -E "\s*nameserver" >> /tmp/resolv.conf
+    [[ ${nsCount} -eq 0 ]] || cmp -s /tmp/resolv.conf ${nameserverConfFile} && return
+    sudo mv /tmp/resolv.conf ${nameserverConfFile}
   }
 
   if ! exec_command_exists aptS && exec_command_exists apt-get; then
     alias aptS='sudo apt-get -y'
   fi
+  if ! exec_command_exists aptS && exec_command_exists yum; then
+    alias aptS='sudo yum -y'
+  fi
   PATH=$(echo $PATH | sed -r 's,:,\n,g' | grep -v -E '^/mnt/c' | tr '\n' ':')
   [[ -d /opt/mssql-tools/bin ]] && PATH="${PATH}/opt/mssql-tools/bin"
 fi
-export OPENSSL_BIN=$(which openssl)
+export OPENSSL_BIN=$(type -P openssl)
 isCygwin && [[ ! ${OPENSSL_BIN}  =~ ^/usr/.* ]] && OPENSSL_BIN=/usr/bin/openssl
 if ! exec_command_exists ${OPENSSL_BIN}; then
   aptS install openssl
@@ -1623,6 +1786,22 @@ if ! exec_command_exists ${OPENSSL_BIN}; then
     echo "${RED_COL}ALERT:${RESET_COL} ${OPENSSL_BIN} not found !"
    return
 fi
+function getDNSList {
+  [[ -n ${DNS_LIST} ]] && echo ${DNS_LIST} && return
+  # isCygwin && nameservers=$(trim $(wps -Command "((Get-DnsClientServerAddress | Where-Object { \$_.AddressFamily -eq 2 -and \$_.ServerAddresses.Count -gt 0 }).ServerAddresses + '8.8.8.8') -join ','"))
+  if isCygwin; then
+    export DNS_LIST=$(trim $(wps -Command "(((Get-DnsClientServerAddress | Where-Object { \$_.AddressFamily -eq 2 -and \$_.ServerAddresses.Count -gt 0 }).ServerAddresses | Where-Object { Test-Connection -ComputerName \$_ -Count 1 -Quiet }) + '8.8.8.8') -join ','"))
+  else
+    local nameserverConfFile=$(realpath /etc/resolv.conf) nsCount=$(cat ${nameserverConfFile} | grep -E "\s*nameserver" | wc -l) rtt
+    cat ${nameserverConfFile} | grep -E "\s*#\s*" > /tmp/resolv.conf
+    export DNS_LIST=$(joinArray , $(for h in $(cat ${nameserverConfFile} | grep -E "\s*nameserver" | awk '{print $2;}'); do
+                                      rtt=$(eval timeout 1 ping -c 1 -q $h | grep rtt | awk '{print $4;}' | awk -F'/' '{print $1;}' 2> /dev/null)
+                                      [[ -z $rtt ]] && rtt=10000 && nsCount=$[${nsCount}-1]
+                                      echo $rtt $h
+                                    done | sort -n | awk '{print $2}' | xargs))
+ fi
+ echo ${DNS_LIST}
+}
 function updateUser {
   local USER_PASSWD_FILE="/etc/passwd"
 #  alias mkuser='echo ADOBENET+$(mkpasswd -c)'
@@ -1709,13 +1888,12 @@ function check_CAMP_AC_ROOT {
 }
 check_CAMP_AC_ROOT
 function installCygwin {
-  isCygwin || { echo "${FUNCNAME[0]} Not available on $(getOS)" | STDERR || return $?; }
+  isCygwin || { echo "'${FUNCNAME[0]}' Not available on $(getOS)" | STDERR || return $?; }
   pushd $CAMP_AC_ROOT/..
   download https://cygwin.com/setup-x86_64.exe
   # http://download.nus.edu.sg/mirror/cygwin/
-  # http://mirror.terrahost.no/cygwin/
-    local CYG_ROOT=$(getCmdValue "cygpath -w /") # e.g C:\cygwin64
-  local mirrorUrl='http://mirror.terrahost.no/cygwin/'
+  local CYG_ROOT=$(getCmdValue "cygpath -w /") # e.g C:\cygwin64
+  local mirrorUrl='http://www.gutscheinrausch.de/mirror/cygwin/'
   echo "Press 'f' to [f]ind out [f]astest mirror.It will take about 1 min. ([d]/f)?"
   readEx "Using default mirror ${mirrorUrl} in " 5 " seconds."
   [ $? -ne 0 ] && response='d'
@@ -1728,7 +1906,7 @@ function installCygwin {
       aptS install rlwrap
     fi
     cat $TMP/fastestmirror.log | grep "://" | sort -u -k 1 | rev | awk '{print $1}' | rev > $TMP/fastestmirror.log.tmp
-    local mvCmd="$(which mv) -f "
+    local mvCmd="$(type -P mv) -f "
     ${mvCmd} $TMP/fastestmirror.log.tmp $TMP/fastestmirror.log
     cat $TMP/fastestmirror.log
     local url
@@ -1743,12 +1921,12 @@ function installCygwin {
   [[ ${mirrorUrl:(-1)} != '/' ]] && mirrorUrl="${mirrorUrl}/"
   echo "${GREEN_COL}INFO:${RESET_COL} Using mirror ${YELLOW_COL}${mirrorUrl}${RESET_COL}"
   echo "Invoking Command line..."
-  echo "${YELLOW_COL}setup-x86_64.exe -g -f -v -q -s "${mirrorUrl}cygwin/"  -R '${CYG_ROOT}' -l '${CYG_ROOT}\\repo' -C Admin -C Base -C Net -C Utils -p wget -x nss${RESET_COL}"
+  echo "${YELLOW_COL}setup-x86_64.exe -g -f -v -q -s "${mirrorUrl}cygwin/"  -R '${CYG_ROOT}' -l '${CYG_ROOT}\\repo' -C Admin -C Base -C Net -C Utils -P libiconv -P wget -x nss${RESET_COL}"
   echo "Once the cygwin setup is complete use following command to fetch copy of .bashrc file"
   echo "${YELLOW_COL}cp '${TEAM_SHARE_LOCATION}.bashrc' '${CYG_ROOT}\\home\\$(whoami)\\.bashrc'${RESET_COL}"
   _CONTAINS -h "$@" || _CONTAINS -v "$@" && popd > /dev/null 2>&1 && return
   readEx "Process Ctrl+C to abort Or the script will go ahead and continue with setup in ... " 10 " seconds"
-  ATTACH_TO_TERMINAL=0 launch ./setup-x86_64.exe -g -f -v -q -s "${mirrorUrl}cygwin/"  -R "${CYG_ROOT}" -l "${CYG_ROOT}\\repo" -C Admin -C Base -C Net -C Utils -p wget -x nss
+  ATTACH_TO_TERMINAL=0 launch ./setup-x86_64.exe -g -f -v -q -s "${mirrorUrl}"  -R "${CYG_ROOT}" -l "${CYG_ROOT}\\repo" -C Admin -C Base -C Net -C Utils -P libiconv -P wget -x nss
   popd > /dev/null 2>&1
   readEx "Press any key to retain this terminal prompt... Else this terminal will Exit in " 5 " seconds."
   [[ $? -ne 0 ]] && exit
@@ -1888,6 +2066,21 @@ function ascii {
     done
   fi
 }
+# generates a 1 byte XOR from input string(s).can be used to generate a unique 1 byte hash.
+function XOR {
+  local input="$([[ -p /dev/stdin ]] && cat - || echo "$@")"
+  if [[ -n "$input" ]]; then
+    for s in $input; do
+      local res=0 b
+      for (( i=0; i<${#s}; i++ )); do
+        b=$(ascii "${s:$i:1}" -i | awk '{print $2}')
+        res=$(printf "$(( ${res} ^ ${b} ))")
+      done
+      echo $res
+    done
+  fi
+}
+
 function isHostAlive {
   local l_host=${1%%:*}
   if [ -z "${l_host}" ]; then
@@ -1931,18 +2124,20 @@ function getUUID {
   echo "12345678-1234-1234-abcd-0123456789ef"
 }
 function isPortListening {
-  [[ $# -eq 0 || $# -gt 2 || ${1,,}  =~ ^[-]+h.* ]] && echo "${YELLOW_COL}Usage${RESET_COL}: ${FUNCNAME[0]} <port> [host]" && return 0
+  [[ $# -eq 0 || $# -gt 2 || ${1,,}  =~ ^[-]+h.* ]] && echo "${YELLOW_COL}Usage${RESET_COL}: ${FUNCNAME[0]} <port>/<protocol> [host]" && return 0
   if ! exec_command_exists nc; then
-     aptS install nc
+    aptS install nc
     aptS install netcat
+    aptS install netcat-traditional
   fi
   if ! exec_command_exists nc; then
-    echo "${RED_COL}ALERT:${RESET_COL}  ${FUNCNAME[0]} ${YELLOW_COL}nc${RESET_COL} command for port testing not found."
+    echo "${RED_COL}ALERT:${RESET_COL}  ${FUNCNAME[0]} ${YELLOW_COL}nc${RESET_COL} command for port/protocol testing not found."
     false
     return 1
   fi
   local startPort=${TUNNEL_PORT:=54321}
-  [[ $# -gt 0 ]] && [[ ${1} =~ ^([1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$ ]] && startPort=${1}
+  [[ $# -gt 0 ]] && startPort=${1%%:*}
+  [[ $# -gt 0 ]] && { [[ ${1} =~ ^([1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$ ]] && startPort=${1} || startPort=$(grep -i -E "^${startPort}\s.*tcp" /etc/services | awk  '{print $2;}' | awk -F'/' '{print $1}'); }
   local iRc=0
   local host=${2}
   [[ -z ${host} ]] && host=localhost
@@ -2064,7 +2259,7 @@ function getBackupLocation {
     TEMP=${TEMP:='/tmp'}
     local prefix=$1
     [[ ! -z ${prefix} ]] && prefix="${prefix}-"
-    which nlserver > /dev/null 2>&1
+    type -P nlserver > /dev/null 2>&1
     [[ $? -eq 0 ]] && prefix=${prefix}$(nlserver config -version | awk -F "[()]" '{printf("%s_%s_",$2,$3);}' | tr -d ' ')
     prefix=$(trim ${prefix})
     local ext=$2
@@ -2079,7 +2274,7 @@ function findW {
   if [ $# -lt 1 -o $# -gt 5 ]; then
         echo "${YELLOW_COL}Usage${RESET_COL}:  ${FUNCNAME[0]} [OPTION] <binary-file-name>
           -h,h,help,--help,?,/?      This help documentation.
-          -i,--hint  <hint-expr>     String which can be used to uniquely identify path of executable.
+          -i,--hint  <hint-expr>     String to uniquely identify path of executable.
           -u,--update                Update windows (user) path to include executable location for further searches.
           -v, --verbose              Print verbose messages during search.
           binary-file-name           Mandatory last argument.Name of the binary you want to locate.
@@ -2097,7 +2292,7 @@ function findW {
       '' | '-h' | '--help' | '-?' | '/?')
         echo "${YELLOW_COL}Usage${RESET_COL}:  ${FUNCNAME[0]} [OPTION] <binary-file-name>
           -h,--help,/?               This help documentation.
-          -i,--hint  <hint-expr>     String which can be used to uniquely identify path of executable.
+          -i,--hint  <hint-expr>     String to uniquely identify path of executable.
           -u,--update                Update windows (user) path to include executable location for further searches.
           -v, --verbose              Print verbose messages during search.
           binary-file-name           Mandatory last argument.Name of the binary you want to locate.
@@ -2121,7 +2316,7 @@ function findW {
     shift
   done
   [[ -z $verbose ]] || echo "Finding $__exeFileName in $(getOS) path ..."
-  local retVal="$(which ${__exeFileName} 2>/dev/null | grep -i "${__identifier}" )"
+  local retVal="$(type -P ${__exeFileName} 2>/dev/null | grep -i "${__identifier}" )"
   if [ -n "$retVal" ]; then
     echo "$retVal"
     return 0
@@ -2210,6 +2405,7 @@ function mssql {
       -p | --port | -port)
         local posNext=$[${posN}+1]
         local _port="${!posNext}"
+        _port=${_port%%:*}
         export PGPORT=${_port:=1433}
         set -- "${@:1:posN-1}" "${@:posN+2}"
         skipNextArg=1
@@ -2255,13 +2451,15 @@ function mssql {
       -U | -u | --username | -username | --user | -user)
         local posNext=$[${posN}+1]
         local _user="${!posNext}"
-        export PGUSER=${_user:="sa")}
+        export PGUSER=${PGUSER:="sa"}
+        export PGUSER=${_user:=${PGUSER}}
         set -- "${@:1:posN-1}" "${@:posN+2}"
         skipNextArg=1
       ;;
       --username=*)
         local _user=$(echo "${!posN}" | cut -d '=' -f2)
-        export PGUSER=${_user:="sa")}
+        export PGUSER=${PGUSER:="sa"}
+        export PGUSER=${_user:=${PGUSER}}
         set -- "${@:1:posN-1}" "${@:posN+1}"
       ;;
       -p | -P | --pass | -pass | --passwd | -passwd | --password | -password)
@@ -2323,10 +2521,12 @@ function mssql {
   export PGDATABASE=${PGDATABASE:="master"}
   export PGUSER=${PGUSER:="sa"}
   export PGPASSWORD=${PGPASSWORD:=${DEFAULT_PASSWORD}}
+  export PGPORT=${PGPORT:=1433}
+
   local __serverInstance __database __user __password
   [[ ! -z ${PGHOST} ]]     && __serverInstance="-S ${PGHOST}"
   # https://www.mssqltips.com/sqlservertip/5133/different-ways-to-connect-to-sql-server-using-sqlcmd/
-  [[ ! -z ${PORT} ]]      && __serverInstance="-S tcp:${PGHOST},${PORT} "
+  [[ ! -z ${PGPORT} ]]      && __serverInstance="-S tcp:${PGHOST},${PGPORT} "
   [[ ! -z ${PGDATABASE} ]]   && __database="-d ${PGDATABASE}"
   [[ ! -z ${PGUSER} ]]     && __user="-U ${PGUSER}"
   [[ ! -z ${PGUSER} ]]     && [[ ! -z ${PGPASSWORD} ]]   && __password="-P ${PGPASSWORD}"
@@ -2396,6 +2596,7 @@ function pgsql {
       -p | --port | -port)
         local posNext=$[${posN}+1]
         local pg_port="${!posNext}"
+        pg_port=${pg_port%%:*}
         export PGPORT=${pg_port:=5432}
         set -- "${@:1:posN-1}" "${@:posN+2}"
         skipNextArg=1
@@ -2440,13 +2641,15 @@ function pgsql {
       -U | -u | --username | -username | --user | -user)
         local posNext=$[${posN}+1]
         local pg_user="${!posNext}"
-        export PGUSER=${pg_user:="postgres")}
+        export PGUSER=${PGUSER:="postgres"}
+        export PGUSER=${pg_user:=${PGUSER}}
         set -- "${@:1:posN-1}" "${@:posN+2}"
         skipNextArg=1
       ;;
       --username=*)
         local pg_user=$(echo "${!posN}" | cut -d '=' -f2)
-        export PGUSER=${pg_user:="postgres")}
+        export PGUSER=${PGUSER:="postgres"}
+        export PGUSER=${pg_user:=${PGUSER}}
         set -- "${@:1:posN-1}" "${@:posN+1}"
       ;;
       -w | -W | --pass | -pass | --passwd | -passwd | --password | -password)
@@ -2504,7 +2707,7 @@ function pgsql {
   export PGDATABASE=${PGDATABASE:="postgres"}
   export PGUSER=${PGUSER:="postgres"}
   export PGPASSWORD=${PGPASSWORD:=${DEFAULT_PASSWORD}}
-#  export PGPORT=${PGPORT:=5432}
+  export PGPORT=${PGPORT:=5432}
   local iRc=0
   if [[ "$@" =~ "-V" ]]; then
     local psqlclientVersion="$(getCmdValue "psql -V")"
@@ -2516,7 +2719,7 @@ function pgsql {
       if [[ ${iRc} -eq 0 ]]; then
         local wait_time=$(date '+%s')
         local defaultdb=${PGDATABASE:='template1'}
-        local pgServerVersion=$(psql -Atq --pset=pager=off -d "dbname=${defaultdb} connect_timeout=10" -c 'SELECT version();' 2>&1 | grep -i --color=never postgres)
+        local pgServerVersion=$(psql -Atq --pset=pager=off -d "dbname=${defaultdb} connect_timeout=10" -c 'SELECT version();' 2>&1 | grep -i -v fail | grep -i --color=never postgres)
         if [[ -z ${pgServerVersion} ]]; then
           iRc=5
         else
@@ -2557,35 +2760,65 @@ function sfsql {
   return $?
 }
 
+function nrql {
+    _CONTAINS -h "$@" || [[ $# -gt 1 ]] && {
+      echo "${YELLOW_COL}Usage:${RESET_COL}   ${FUNCNAME[0]} [NRQL_QUERY]"
+      echo "${YELLOW_COL}Example:${RESET_COL} ${FUNCNAME[0]} | jq -r '.data.actor.account.nrql.results[] | [(.facet[0] + \"                        \")[0:32], (.Elapsed_in_hours * 100 | floor) / 100, .Query] | @tsv'";
+      return 1
+    }
+
+  if [[ -z ${NEWRELIC_APIKEY} ]]; then
+    # Login to vault and get the New Relic API key
+    local vault_newrelic_path='secret/campaign/techops-secrets/tools/techops-tools/newrelic'
+    getVaultCreds -s CampTestDebian11-mkt-prod1 >/dev/null 2>&1
+    local nrKey="$(trim $(vault read -format=json -address=${VAULT_ADDR} ${vault_newrelic_path} | jq -r '.data.APIKey'))"
+    export NEWRELIC_APIKEY=${nrKey}
+   fi
+  [[ -n ${NEWRELIC_APIKEY} ]] || {
+      echo "${RED_COL}ALERT:${RESET_COL} Failed to retrieve New Relic API key from Vault" | STDERR
+      return 2
+      }
+  local NEWRELIC_ACCOUNT_ID='1209327'  # numeric account id for account 'DX_Campaign'
+  local qPrefix="{\"query\": \"{ actor { account(id: ${NEWRELIC_ACCOUNT_ID}) { nrql(query: \\\""
+  local qSuffix='\", timeout: 120) { results }}}}"}'
+  local DEFAULT_QUERY="SELECT max(query_duration_in_seconds /3600) AS Elapsed_in_hours, latest(long_query) AS Query FROM Postgres  WHERE queryName = 'PG_LONG_RUNNING_QUERY' and linuxDistribution LIKE '%Debian%'  AND hostname LIKE '%prod%' AND  query_duration_in_seconds > 14400 FACET hostname,process_id since 1 hour ago LIMIT MAX"
+  local nrqlQueryText="$1"
+  nrqlQueryText=${nrqlQueryText:="${DEFAULT_QUERY}"}
+
+  curl -s -X POST "https://api.newrelic.com/graphql" \
+     -H "Content-Type: application/json" \
+     -H "API-Key: ${NEWRELIC_APIKEY}" \
+     --data-raw "${qPrefix}${nrqlQueryText}${qSuffix}"
+}
+
 function long_pending_queries_2 {
   local iRc
-  type _CONTAINS > /dev/null 2>&1
   iRc=$?
   [[ $iRc -eq 0 ]] && _CONTAINS -h "$@" && echo "${YELLOW_COL}Usage:${RESET_COL}  ${FUNCNAME[0]} [n -- max number-of-queries] [-h -- help] [-d -- detailed info] " && return 1
   local tmp_file=query_out.txt
   local q_Info='mean_exec_time, query' count=5
-  export DBMS_VERSION=${DBMS_VERSION:="$(pgsql -Atq -c 'select version()')"}
+  export DBMS_VERSION=${DBMS_VERSION:="$(csql -Atq -c 'select version()')"}
   local majVer=${DBMS_VERSION%%,*}
   majVer=${majVer#* }
   majVer=${majVer%%.*}
   [[ $iRc -eq 0 ]] && _CONTAINS -d "$@" && q_Info='mean_exec_time, total_exec_time, min_exec_time, max_exec_time, calls, rows, query'
   [[ $majVer -le 12 ]] && q_Info=${q_Info//_exec_/_}
   [[ $# -ne 0 ]] && [[ $1 =~ [1-9] ]] && count=$1
-  pgsql -o ${tmp_file} -c "SELECT ${q_Info} FROM pg_stat_statements ORDER BY $(cut -d, -f1 <<< ${q_Info}) DESC LIMIT ${count}"
+  csql -o ${tmp_file} -c "SELECT ${q_Info} FROM pg_stat_statements ORDER BY $(cut -d, -f1 <<< ${q_Info}) DESC LIMIT ${count}"
   iRc=$?
-  [[ $iRc -ne 0 ]] && pgsql -c 'CREATE EXTENSION IF NOT EXISTS pg_stat_statements' && pgsql -o ${tmp_file} -c "SELECT ${q_Info} FROM pg_stat_statements ORDER BY $(cut -d, -f1 <<< ${q_Info}) DESC LIMIT ${count}"
+  [[ $iRc -ne 0 ]] && csql -c 'CREATE EXTENSION IF NOT EXISTS pg_stat_statements' && csql -o ${tmp_file} -c "SELECT ${q_Info} FROM pg_stat_statements ORDER BY $(cut -d, -f1 <<< ${q_Info}) DESC LIMIT ${count}"
   [[ $iRc -ne 0 ]] && return $iRc
   local outf="/tmp/long_pending_queries_$(date '+%d%b%Y_%H_%M_%S_%s_%z').txt"
   cat ${tmp_file} | tee -a ${outf} && rm -f ${tmp_file}
   echo "${GREEN_COL}INFO:${RESET_COL}Output to ${YELLOW_COL}${outf}${RESET_COL} @ $(date -u '+%d%b%Y_%H_%M_%S_%s_%z')"
-  echo "Database Server time: $(pgsql -Atq -c 'select now()')"
+  echo "Database Server time: $(csql -Atq -c 'select now()')"
 }
 
 function long_pending_queries {
   local count=5 tmp_file="query_out.txt" iRc
   [[ $# -ne 0 ]] && [[ $1 =~ [1-9] ]] && count=$1
   local duration='(now() - pg_stat_activity.query_start)'
-  pgsql -o ${tmp_file} -c "SELECT ${duration} As Duration, query As Query
+  csql -o ${tmp_file} -c "SELECT ${duration} As Duration, query As Query
   FROM pg_stat_activity
   where ${duration} > interval '5 minutes' and state='active'
   ORDER BY duration DESC LIMIT ${count}"
@@ -2594,7 +2827,7 @@ function long_pending_queries {
   local outf="/tmp/long_pending_queries_$(date '+%d%b%Y_%H_%M_%S_%s_%z').txt"
   cat ${tmp_file} | tee -a ${outf} && rm -f ${tmp_file}
   echo "${GREEN_COL}INFO:${RESET_COL}Output to ${YELLOW_COL}${outf}${RESET_COL} @ $(date -u '+%d%b%Y_%H_%M_%S_%s_%z')"
-  echo "Database Server time: $(pgsql -Atq -c 'select now()')"
+  echo "Database Server time: $(csql -Atq -c 'select now()')"
 }
 
 # \pset pager off   # Pager usage is off.
@@ -2605,6 +2838,7 @@ export DEFAULT_PASSWORD=${DEFAULT_PASSWORD:='123456'}
 # tries to guess the database type from DB_SERVER
 function getDatabaseType {
 # _TS ${FUNCNAME[0]}
+  [[ -n $1 ]] && export PGPASSWORD=$1
   local l_host l_port dbType dbkey
   if [[ -z ${DB_SERVER} ]]; then
     export DB_SERVER=$(hostname --fqdn)
@@ -2614,20 +2848,26 @@ function getDatabaseType {
   unset DBMS_TYPE
 # _TE ${FUNCNAME[0]} $LINENO
   isHostAlive ${l_host} || return $?
+  local sysAdminPassword
+  [[ -n ${PGPASSWORD} ]] || read -s -p "Enter Password for system/admin user of the database:$(echo -e '\U0001F512')" sysAdminPassword
+  echo ;
+  [[ -n ${sysAdminPassword} ]] && export PGPASSWORD=${sysAdminPassword}
+  [[ -z ${PGPASSWORD} ]] && echo "${RED_COL}ALERT:${RESET_COL} You must supply system administrator password" && return $(errno EACCES | cut -d ' ' -f2)
   unset PGHOST PGPORT
 #  _TE ${FUNCNAME[0]} $LINENO
   local l_curDB=${PGDATABASE}
   if [[ -z ${l_port} ]]; then
-    [[ -z ${dbType} ]]  && isPortListening 5432 ${l_host} &&  export PGDATABASE=postgres && DBMS_VERSION="$(pgsql -host ${l_host} -V)"  && dbType="PostgreSQL" && PGHOST=${l_host}
-    [[ -z ${dbType} ]]  && isPortListening 1433 ${l_host} &&  export PGDATABASE=master && DBMS_VERSION="$(mssql -host ${l_host} -V)"  && dbType="MSSQL" && PGHOST=${l_host}
+    [[ -z ${dbType} ]]  && isPortListening 5432 ${l_host} &&  export PGDATABASE=postgres && DBMS_VERSION="$(pgsql -host ${l_host} -V)"  && dbType="PostgreSQL" && export PGHOST=${l_host} && export PGPORT=5432
+    [[ -z ${dbType} ]]  && isPortListening 1433 ${l_host} &&  export PGDATABASE=master && DBMS_VERSION="$(mssql -host ${l_host} -V)"  && dbType="MSSQL" && export PGHOST=${l_host} && export PGPORT=1433
   else
-    [[ -z ${dbType} ]] &&  isPortListening ${l_port} ${l_host}  && export PGDATABASE=postgres &&  DBMS_VERSION="$(pgsql --host ${l_host} -p ${l_port} -V)" && dbType="PostgreSQL" && PGHOST=${l_host} && PGPORT=${l_port}
-    [[ -z ${dbType} ]] &&  isPortListening ${l_port} ${l_host}  &&  export PGDATABASE=master && DBMS_VERSION="$(mssql --host ${l_host} -p ${l_port} -V)" && dbType="MSSQL" && PGHOST=${l_host}  && PGPORT=${l_port}
+    [[ ${l_port#*:} = ${l_port} ]] || export PGSSLMODE=require
+    l_port=${l_port%%:*}
+    [[ -z ${dbType} ]] &&  isPortListening ${l_port} ${l_host}  && export PGDATABASE=postgres &&  DBMS_VERSION="$(pgsql --host ${l_host} -p ${l_port} -V)" && dbType="PostgreSQL" && export PGHOST=${l_host} && export PGPORT=${l_port%%:*}
+    [[ -z ${dbType} ]] &&  isPortListening ${l_port} ${l_host}  &&  export PGDATABASE=master && DBMS_VERSION="$(mssql --host ${l_host} -p ${l_port} -V)" && dbType="MSSQL" && export PGHOST=${l_host}  && export PGPORT=${l_port%%:*}
   fi
 #  _TE ${FUNCNAME[0]} $LINENO
   export PGDATABASE=${l_curDB}
-  [[ -z ${dbType} ]] && return 1
-  unset PGUSER # let calls from respective sql clients decide on default user to use.
+  [[ -z ${dbType} ]] && unset PGPASSWORD && return 1
   export DBMS_TYPE=${dbType}
   export DBMS_VERSION="$(trim $(echo "${DBMS_VERSION}"))"
   sed -r -i "/${dbkey}DBMS_VERSION|DBMS_TYPE|PGPORT|PGHOST/d" ~/.before.sh
@@ -2708,7 +2948,7 @@ function createShortCut {
     else
       echo "Please ensure ${YELLOW_COL}'${CYG_ROOT}\Cygwin.bat'${RESET_COL} has windows line endings."
     fi
-    local update_CygwinBat_Cmd="(Get-Content '${CYG_ROOT}\Cygwin.bat' -Encoding ASCII) -replace '^setlocal.*$', \"$&\`r\`nset CYGWIN=binmode ntsec nodosfilewarning\" | Out-File -FilePath  '${CYG_ROOT}\Cygwin_new.bat' -Encoding ASCII"
+    local update_CygwinBat_Cmd="(Get-Content '${CYG_ROOT}\Cygwin.bat' -Encoding ASCII) -replace '^setlocal.*$', \"$&\`r\`nset CYGWIN=binmode ntsec nodosfilewarning\" -replace '^set TERM.*$', \"set TERM=xterm-256color\" | Out-File -FilePath  '${CYG_ROOT}\Cygwin_new.bat' -Encoding ASCII"
     wps -Command "${update_CygwinBat_Cmd}"
     # Create a ShortCut to batch file. Assign it a proper icon. Set the flag "Run as Administrator(on order to allow cygwin to install, configure and run sshd demon...Allow ssh from other machine to this machine.)
     local createShortCut_Cmd="\$Shortcut=(New-Object -ComObject ('WScript.Shell')).CreateShortCut(\"\$env:USERPROFILE\Desktop\ACC_Server.lnk\"); \$Shortcut.IconLocation = '${CYG_ROOT}\\Cygwin.ico,0'; \$Shortcut.TargetPath = '${CYG_ROOT}\\cygwin_new.bat'; \$Shortcut.Save(); \$bytes = [System.IO.File]::ReadAllBytes(\"\$env:USERPROFILE\\Desktop\\ACC_Server.lnk\"); \$bytes[0x15] = \$bytes[0x15] -bor 0x20; [System.IO.File]::WriteAllBytes(\"\$env:USERPROFILE\\Desktop\\ACC_Server.lnk\", \$bytes)"
@@ -2762,7 +3002,7 @@ function createShortCut {
   WindowsTerminalEntry=${WindowsTerminalEntry%*,}
   WindowsTerminalEntry+='\n}\n'
   echo -ne "${WindowsTerminalEntry}" > /tmp/additional_settings.json
-  local cpCmd="$(which cp) -f"
+  local cpCmd="$(type -P cp) -f"
   local settings_file=${USERPROFILE}'\AppData\Local\Packages\'${WindowsTerminalPreview_PkgFamilyName}'\LocalState\settings.json'
   ${cpCmd} ${settings_file} /tmp/orignal_settings.json
   if [[ $? -eq 0 ]]; then
@@ -2831,13 +3071,13 @@ function openTerm {
     local start_cygwin_cmd_1="\$sh = New-Object -COM WScript.Shell; Invoke-Item (Get-ChildItem | Where-Object { \$_.Extension -Like \\\".lnk\\\" } | Where-Object { \$sh.CreateShortcut(\$_.FullName).TargetPath -Like \\\"*cygwin*.bat\\\"}).Name"
     local start_cygwin_cmd_2="Get-ItemPropertyValue -Path \\\"HKCU:\\\Software\\\Microsoft\\\Windows\\\CurrentVersion\\\Explorer\\\User Shell Folders\\\" -Name Desktop | Push-Location; \$sh = New-Object -COM WScript.Shell; $pwd; sleep 3; explorer (Get-ChildItem | Where-Object { \$_.Extension -Like \\\".lnk\\\" } | Where-Object { \$sh.CreateShortcut(\$_.FullName).TargetPath -Like \\\"*cygwin*.bat\\\"}).Name"
     openTermCmd=${start_cygwin_cmd_2}
-    wps -Command "Start-Process -WindowStyle Hidden $PWSHELL  -ArgumentList '-Command \"${openTermCmd}\"' -Verb RunAs"
+    wps -Command "Start-Process -WindowStyle Hidden $PWSHELL  -ArgumentList '-Command \"${openTermCmd}\"' -Wait -Verb RunAs"
   else
     if isCygwin; then
       if [[ $(wsl -l --running | wc -l) -lt 2 ]]; then
         local restart_WSL_VM_Services_Cmd='Restart-Service vmms; Restart-Service vmcompute;'
         # Get-Service vm* | Where-Object { $_.Status -cne 'Running' }
-        wps -Command "Start-Process $PWSHELL  -ArgumentList '-Command \"${restart_WSL_VM_Services_Cmd}\"' -Verb RunAs"
+        wps -Command "Start-Process $PWSHELL  -ArgumentList '-Command \"${restart_WSL_VM_Services_Cmd}\"' -Wait -Verb RunAs"
       fi
       openTermCmd="wsl -d ${distro}"
       wps -Command "Start-Process $PWSHELL  -ArgumentList '-Command \"${openTermCmd}\"' -Verb RunAs"
@@ -2861,7 +3101,7 @@ function add2HostsFile {
   export SYS_HOSTS_FILE=${SYS_HOSTS_FILE:=$(readlink -f ${l_hosts_file})}
   [[ ${l_alias} =~ ^(25[0-5]|2[0-4][0-9]|1[0-9]?[0-9]?|[1-9][0-9]?|[1-9])(\.(25[0-5]|2[0-4][0-9]|1[0-9]?[0-9]?|[1-9][0-9]?|[0-9])){3}$ ]] && l_ip=${l_alias} && unset l_alias
   export HOSTS_EOL=${HOSTS_EOL:=$(getEOL ${SYS_HOSTS_FILE})}
-  local mvCmd="$(which mv) -f " cpCmd="$(which cp) -f "
+  local mvCmd="$(type -P mv) -f " cpCmd="$(type -P cp) -f "
   local bang='!' iRc=0
   if [[ ! -z ${l_alias} ]]; then
     grep -E "[^#]+\s+${l_hostname}" ${SYS_HOSTS_FILE} | grep -Pe "^(?=.*\s+ ${l_hostname}\s)(?${bang}.*\s+${l_alias}\s+)" > /dev/null && { ${cpCmd} ${SYS_HOSTS_FILE} /tmp/hosts; sed -i -r "s,(.*)(\s${l_hostname}\s)(.*),\1\2 ${l_alias} \3,g" /tmp/hosts; sudo ${mvCmd} /tmp/hosts ${SYS_HOSTS_FILE}; }
@@ -2923,8 +3163,8 @@ function setupVault {
     sudo chmod +x /usr/local/bin/vault
     popd > /dev/null 2>&1
   fi
-  local cpCmd="$(which cp) -f -p -r"
-  local mvCmd="$(which mv) -f"
+  local cpCmd="$(type -P cp) -f -p -r"
+  local mvCmd="$(type -P mv) -f"
   local iRc
   local pathSep='/'
   isCygwin && pathSep='\'
@@ -2970,8 +3210,8 @@ function setupVault {
     vault login -address=${VAULT_ADDR} -method=oidc
     iRc=$?
     if [ $iRc -ne 0 ]; then
-      echo "${RED_COL}ALERT:${RESET_COL}oidc Login unsuccessful..Trying login to vault with your LDAP credentials(and OTP):"
-      vault login -address=${VAULT_ADDR}  -method=ldap  username=$(whoami)
+      echo "${RED_COL}ALERT:${RESET_COL}oidc Login unsuccessful..Trying login to vault with 'okta' method. Please specify your LDAP credentials(and then okta OTP/MFA):"
+      vault login -address=${VAULT_ADDR} -method=okta username=$(whoami)
     fi
     vault token lookup | grep ttl
     iRc=$?
@@ -2991,7 +3231,7 @@ function setupVault {
     echo ${YELLOW_COL}WARN:${RESET_COL} $(date '+%H:%M:%S %p : ') Skipping Server list vault refresh!... It was last refreshed on $(stat -c '%y' ~/.vault_hosts)
     return ${iRc}
   fi
-  echo "" > /tmp/.vault_hosts
+  echo > /tmp/.vault_hosts
   echo ${GREEN_COL}INFO:${RESET_COL} $(date '+%H:%M:%S %p : ') Found ${YELLOW_COL}$(nchars / ${orgs})${RESET_COL} organizations in vault.
   local sCount=0
   local failCount=0
@@ -3003,8 +3243,8 @@ function setupVault {
       vault login -address=${VAULT_ADDR} -method=oidc
       iRc=$?
       if [ $iRc -ne 0 ]; then
-        echo "${RED_COL}ALERT:${RESET_COL}oidc Login unsuccessful..Trying login to vault with your LDAP credentials(and OTP):"
-        vault login -address=${VAULT_ADDR}  -method=ldap  username=$(whoami)
+        echo "${RED_COL}ALERT:${RESET_COL}oidc Login unsuccessful..Trying login to vault with 'okta' method. Please specify your LDAP credentials(and then okta OTP/MFA):"
+        vault login -address=${VAULT_ADDR}  -method=okta  username=$(whoami)
         iRc=$?
       fi
       vault token lookup | grep ttl
@@ -3036,7 +3276,7 @@ function setupVault {
   # merge new(sorted) records with old(sorted) records.
   { echo -ne "# mtime=$(date '+%s')"; [[ -e ~/.vault_hosts ]] && cat ~/.vault_hosts | sed -r -e "0,/^#\s+mtime/d" | grep --color=never -E -v "^${start_org_id}.*"; cat /tmp/.vault_hosts; } > /tmp/.vault_hosts.new
   ${mvCmd} /tmp/.vault_hosts.new ~/.vault_hosts
-  echo ""; echo "Uploading new vault information to shared location."
+  echo; echo "Uploading new vault information to shared location."
   ${cpCmd} ~/.vault_hosts "${TEAM_SHARE_CACHE}vault_hosts.txt"
   return 0
 }
@@ -3045,11 +3285,11 @@ function getVaultCreds {
     wcinstall vault
   fi
   if [ $# -lt 1 -o $# -gt 5 ]; then
-    echo "${YELLOW_COL}Usage:${RESET_COL}  ${FUNCNAME[0]}  [-[h|H] (help)] [-o] <org> [-s] <server>"
+    echo "${YELLOW_COL}Usage:${RESET_COL}  ${FUNCNAME[0]}  [-[h|H] (help)] [-o <org>] [-s] <server>"
     return 1
   fi
   if _CONTAINS -h "$@" ; then
-    echo "${YELLOW_COL}Usage:${RESET_COL}  ${FUNCNAME[0]}  [-[h|H] (help)] [-o] <org> [-s] <server>"
+    echo "${YELLOW_COL}Usage:${RESET_COL}  ${FUNCNAME[0]}  [-[h|H] (help)] [-o <org>] [-s] <server>"
     return 0
   fi
   if [[ ! -e ~/.vault_hosts || $(stat -c '%s' $(readlink -f ~/.vault_hosts )) -lt 1024 ]]; then
@@ -3072,7 +3312,7 @@ function getVaultCreds {
       fi
     fi
   else
-    l_Org=$1
+    [[ $# -eq 1 ]] && l_Server=$1 || l_Org=$1
     if _CONTAINS -s "$@"; then
       l_Server=$(_KEY_HAS_VALUE -s $@)
     fi
@@ -3092,11 +3332,19 @@ function getVaultCreds {
     fi
   fi
   l_Server=${l_Server%%.*}
+  local domain=${l_Server#*.}
+  [[ ${domain} = ${l_Server} ]] && domain=${HOSTED_CAMPAIGN_DOMAIN}
+  domain=${domain%%/*}
   l_Server=${l_Server##*/}
+  if [[ -z ${domain} || ${domain,,} = ${HOSTED_CAMPAIGN_DOMAIN} ]]; then
+    [[ $l_Server =~ ^.*[[:digit:]]+-[[:digit:]]+$ ]] && l_Server=${l_Server%-*}
+  fi
   l_Org=$(echo ${l_Org} | sed -r 's,/$,,')
   local l_ServerRefInVault=${l_Server}
-  [[ -z $l_Org ]] && { l_Org=$(cat ~/.vault_hosts | grep -E "$(echo $l_Server | awk -F "[_-]" '{ printf($1);for(i=2; i<=NF; i++) { printf("[_-]%s",$i); }}')"); l_ServerRefInVault=${l_Org#*/}; l_Org=${l_Org%/*} ; echo "${GREEN_COL}INFO:${RESET_COL}Using Org ${YELLOW_COL}${l_Org}${RESET_COL} with instance ${YELLOW_COL}${l_ServerRefInVault}${RESET_COL}" ; }
-  [[ -z $l_Org ]] && { echo "Could not find org in vault for this server. You can use -o to specify org explicitly." | STDERR || return 2; }
+  [[ $l_ServerRefInVault = "bashrc" ]] && l_Org='../../../..' && l_ServerRefInVault='dev'
+  [[ -z $l_Org ]] && { l_Org=$(cat ~/.vault_hosts | grep -E "$(echo $l_Server | awk -F "[_-]" '{ printf($1);for(i=2; i<=NF; i++) { printf("[_-]%s",$i); }}')" | sort | head -n 1); l_ServerRefInVault=${l_Org#*/}; l_Org=${l_Org%/*} ; echo "${GREEN_COL}INFO:${RESET_COL}Using Org ${YELLOW_COL}${l_Org}${RESET_COL} with instance ${YELLOW_COL}${l_ServerRefInVault}${RESET_COL}" ; }
+  [[ -z $l_Org ]] && { echo "Could not find org in vault for this server. You can for e.g use -o ${l_ServerRefInVault%%-*} to specify org explicitly." | STDERR || return 2; }
+
   local iRc
   vault token lookup | grep ttl > /dev/null 2>&1
   iRc=$?
@@ -3104,8 +3352,8 @@ function getVaultCreds {
     [[ -z ${VAULT_LDAP} ]] && vault login -address=${VAULT_ADDR} -method=oidc
     iRc=$?
     if [ $iRc -ne 0 ]; then
-      echo "${RED_COL}ALERT:${RESET_COL} Skipping oidc(Microsoft) Authentication for vault Login...Trying login to vault with your LDAP credentials(and OTP):"
-      vault login -address=${VAULT_ADDR} -method=ldap  username=$(whoami)
+      echo "${RED_COL}ALERT:${RESET_COL}oidc Login unsuccessful..Trying login to vault with 'okta' method. Please specify your LDAP credentials(and then okta OTP/MFA):"
+      vault login -address=${VAULT_ADDR} -method=okta  username=$(whoami)
     fi
     vault token lookup | grep ttl
     iRc=$?
@@ -3114,7 +3362,10 @@ function getVaultCreds {
     echo "${RED_COL}ALERT:${RESET_COL}Failed to authenticate against vault"
     return ${iRc}
   fi
+  # local creds_json='{"OWNER":"hparmar@adobe.com","SECRET_PASSWORD":"**********","rlycin":"****************"}'
+  # vault write -address=${VAULT_ADDR} ${VAULT_CAMP_PATH}$(echo "${l_Org}/${l_ServerRefInVault} bashrc="${creds_json}"")
   vault read -address=${VAULT_ADDR} ${VAULT_CAMP_PATH}$(echo "${l_Org}/${l_ServerRefInVault}" |  sed -r 's,\s+,,g')
+
   [[ $? -eq 0 ]] && echo "${l_Server}.${HOSTED_CAMPAIGN_DOMAIN}" >> ~/.hosts
 }
 function cleanPaths {
@@ -3149,16 +3400,17 @@ function getUserInfo {
   fi
   local infoType=${1,,}
   if isCygwin; then
-    local ci=$(getCmdValue "wps  -Command '\$ci=Get-ComputerInfo; \$ci.CsPrimaryOwnerName; \$ci.WindowsRegisteredOrganization'")
+    local ci=()
+    readarray -t ci <<< $(wps  -Command '$ci=Get-ComputerInfo; $ci.CsPrimaryOwnerName; $ci.WindowsRegisteredOrganization')
     if [[ X${infoType:0:2} = X"-f" ]]; then
       local l_userFullName;
-      l_userFullName=$(echo "$ci" | head -1)
+      l_userFullName=$(trim ${ci[0]})
       if [[ $l_userFullName =~ ^[[:space:]]*$ ]]; then
         l_userFullName=$(whoami)
       fi
       echo "${l_userFullName}";
     else
-      local l_ORG_NAME=$(echo "$ci" | tail -1)
+      local l_ORG_NAME=$(trim ${ci[1]})
       if [[ $l_ORG_NAME =~ ^[[:space:]]*$ ]]; then
         l_ORG_NAME="Adobe Systems India Pvt Ltd"
       fi
@@ -3166,20 +3418,13 @@ function getUserInfo {
     fi
   else
     if [[ X${infoType:0:2} = X"-f" ]]; then
-      local l_userFullName="$(finger $(whoami) | grep "Name:" | sed -r 's,.*Name:\s+,,' | sed -r 's,\t.*,,')"
+      local l_userFullName="$(getent passwd $(whoami) | awk -F: '{print $5}')"
       if [[ $l_userFullName =~ ^[[:space:]]*$ ]]; then
         l_userFullName=$(whoami)
       fi
       echo "${l_userFullName}"
-      # local h=$(finger -s hparmar | head -1)
-      # local start=$(echo "$h" | sed -r 's,(.*\s+Name)\s+.*,\1,' | wc -c)
-      # local end=$(echo "$h" | sed -r 's,(.*\s+Name\s+).*,\1,' | wc -c)
-      # local l_userFullName=$(finger -s hparmar | tail -1 | cut -b $[${start}-4]-$[${end}-4])
-      # if [[ $l_userFullName =~ ^[[:space:]]*$ ]]; then
-        # l_userFullName=$(whoami)
-      # fi
     else
-      local l_ORG_NAME="$(finger $(whoami) | grep "Office:" | sed -r 's,.*Office:\s+,,' | sed -r 's,\t.*,,')"
+      local l_ORG_NAME=${ORG_UNIT_NAME}
       if [[ $l_ORG_NAME =~ ^[[:space:]]*$ ]]; then
         l_ORG_NAME="Adobe Systems India Pvt Ltd"
       fi
@@ -3238,14 +3483,16 @@ function getbashrc {
   popd > /dev/null
 }
 function soap {
-  local l_proto l_host l_port
+  local l_proto l_host
   export SOAP_HOST=${SOAP_HOST:="https://$(hostname --fqdn)"}
   [[ ${SOAP_HOST} =~ ([^:/]+)[:/]{2,} ]] && l_proto=${BASH_REMATCH[1]}
   [[ ${SOAP_HOST} =~ ${l_proto}[:/]*([^:/]+) ]] && l_host=${BASH_REMATCH[1]}
   local soapAction=$1; shift
   local soapURL="${SOAP_HOST}/nl/jsp/soaprouter.jsp"
   [[ ${soapAction} =~ [Nn][Oo][Nn][Ee] || ${soapAction} =~ [Nn][Uu][Ll][Ll] || ${soapAction} =~ [Nn][Ii][Ll] || ${soapAction} =~ 0 ]] && soapURL="${SOAP_HOST}/${1}"
-  curl -s --connect-timeout 1 -X POST \
+  local timeout=1
+  isPortListening ${l_proto} ${l_host} && timeout=5
+  curl -s --connect-timeout ${timeout} -X POST \
   --header "Content-Type: application/soap+xml; action=${soapAction}; charset=utf-8" \
   --header 'Accept-Language: en' \
   --header "SOAPAction: ${soapAction}" \
@@ -3262,7 +3509,7 @@ function urlencode {
 }
 function jssp {
   [[ $# -eq 0 ]] && echo "${YELLOW_COL}Usage:${RESET_COL} ${FUNCNAME[0]} <path-to-jssp> [<key1> <value1>] [<key2> <value2>] ..." && return
-  local l_proto l_host l_port
+  local l_proto l_host
   export SOAP_HOST=${SOAP_HOST:="https://$(hostname --fqdn)"}
   [[ ${SOAP_HOST} =~ ([^:/]+)[:/]{2,} ]] && l_proto=${BASH_REMATCH[1]}
   [[ ${SOAP_HOST} =~ ${l_proto}[:/]*([^:/]+) ]] && l_host=${BASH_REMATCH[1]}
@@ -3296,13 +3543,13 @@ function soap_rtest {
     shift
     host=$1
         # if host does not have domain name specified in it add campaign.adobe.com as domain,
-        # as it is assumed that in which case it was supplied by autocomplete from _get_vault_completions.
+        # as it is assumed that, in which case, it was supplied by autocomplete from _get_vault_completions.
     [[ ! -z ${host} && X${host/.*/} = X${host} ]] && host="${host}.${HOSTED_CAMPAIGN_DOMAIN}"
   fi
   host=${host:=${SOAP_HOST}}
   host=${host:=$(hostname --fqdn)}
   SOAP_HOST=${SOAP_HOST:=${host}}
-  local l_proto l_host l_port
+  local l_proto l_host l_port tmpFile=/tmp/${FUNCNAME[0]}.$(date '+%s')
   [[ $host =~ ([^:/]+)[:/]{2,} ]] && l_proto=${BASH_REMATCH[1]}
   [[ $host =~ ${l_proto}[:/]*([^:/]+) ]] && l_host=${BASH_REMATCH[1]}
   [[ $host =~ ${l_proto}[:/]*[^:]+[:]?([[:digit:]]*) ]] && l_port=${BASH_REMATCH[1]}
@@ -3321,7 +3568,7 @@ function soap_rtest {
   --header "Content-Type: application/soap+xml; action=${soapAction}; charset=utf-8" \
   --header 'Accept-Language: en' \
   --header 'X-Query-Source: nlclient' \
-  --header "Host: ${l_host}" | tee /tmp/soap_rtest
+  --header "Host: ${l_host}" | tee ${tmpFile}
   iRc=$?
   if [[ $iRc -ne 0 ]]; then
     if [[ ${l_proto} = "https" ]]; then
@@ -3338,8 +3585,8 @@ function soap_rtest {
 
   set ${opipefailVal}o pipefail
 
-  [[ $iRc -eq 0 ]] && [[ $(cat /tmp/soap_rtest | xmlize | getXMLAttrVal redir build) -gt 10000 ]] && echo "${YELLOW_COL}WARN:${RESET_COL} ACS instance."
-  rm -f /tmp/soap_rtest
+  [[ $iRc -eq 0 ]] && [[ $(cat ${tmpFile} | xmlize | getXMLAttrVal redir build) -gt 10000 ]] && echo "${YELLOW_COL}WARN:${RESET_COL} ACS instance."
+  rm -f ${tmpFile}
   return $iRc
 }
 
@@ -3359,7 +3606,7 @@ function soapLogOnAPI {
     shift
     host=$1
         # if host does not have domain name specified in it add campaign.adobe.com as domain,
-        # as it is assumed that in which case it was supplied by autocomplete from _get_vault_completions.
+        # as it is assumed that, in which case, it was supplied by autocomplete from _get_vault_completions.
     [[ ! -z ${host} && X${host/.*/} = X${host} ]] && host="${host}.${HOSTED_CAMPAIGN_DOMAIN}"
   fi
   host=${host:=${SOAP_HOST}}
@@ -3582,7 +3829,8 @@ function soapWriteApi
   iRc=$?
   [[ -z ${SESSION_TOKEN} ]] && return $iRc
   local domdoc=$1
-  local APISoapBody="<?xml version='1.0'?><SOAP-ENV:Envelope xmlns:xsd='http://www.w3.org/2001/XMLSchema' xmlns:xsi='http://www.w3.org/2001/XMLSchema-instance' xmlns:ns='urn:xtk:persist' xmlns:SOAP-ENV='http://schemas.xmlsoap.org/soap/envelope/'><SOAP-ENV:Body><Write xmlns='urn:xtk:persist' SOAP-ENV:encodingStyle='http://schemas.xmlsoap.org/soap/encoding/'><__sessiontoken xsi:type='xsd:string'></__sessiontoken>${domdoc}</Write></SOAP-ENV:Body></SOAP-ENV:Envelope>"
+  # domdoc=$(echo ${1} | sed -r -e "s,\s*=\s*',=\",g" -e "s,'([[:space:]>/]),\"\1,g")" # convert single quotes to double in given xml body.
+  local APISoapBody="<?xml version='1.0'?><SOAP-ENV:Envelope xmlns:xsd='http://www.w3.org/2001/XMLSchema' xmlns:xsi='http://www.w3.org/2001/XMLSchema-instance' xmlns:ns='urn:xtk:persist' xmlns:SOAP-ENV='http://schemas.xmlsoap.org/soap/envelope/'><SOAP-ENV:Body><Write xmlns='urn:xtk:persist' SOAP-ENV:encodingStyle='http://schemas.xmlsoap.org/soap/encoding/'><__sessiontoken xsi:type='xsd:string'></__sessiontoken><domDoc xsi:type='ns:Element' SOAP-ENV:encodingStyle='http://xml.apache.org/xml-soap/literalxml'>${domdoc}</domDoc></Write></SOAP-ENV:Body></SOAP-ENV:Envelope>"
   useXMLLint && { echo "${APISoapBody}" > /tmp/api.xml; xmllint --noout /tmp/api.xml > /dev/null 2>&1; iRc=$?; }
   [ $iRc -ne 0 ] && echo "${RED_COL}ALERT:${RESET_COL} Bad XML request body" && return $iRc
   local opipefailVal='+'
@@ -3687,7 +3935,7 @@ function soapUpdateTrackingInfo {
     </where> \
   </queryDef>"
   local operatorId=$(soapExecuteQueryAPI "${queryDef}" | getXMLAttrVal operator id)
-  local domdoc="<domDoc xsi:type='ns:Element' SOAP-ENV:encodingStyle='http://xml.apache.org/xml-soap/literalxml'><operator _operation='update' _unicityCheck='false' id='${operatorId}' xtkschema='xtk:operator'><tracking instance='${TRK_INST_NAME}' password='${TRK_PASSWORD}' servers='${TRK_INST_URL}'/><imagePublishing method='${IMG_PUBLISH_METHOD}'/></operator></domDoc>"
+  local domdoc="<operator _operation='update' _unicityCheck='false' id='${operatorId}' xtkschema='xtk:operator'><tracking instance='${TRK_INST_NAME}' password='${TRK_PASSWORD}' servers='${TRK_INST_URL}'/><imagePublishing method='${IMG_PUBLISH_METHOD}'/></operator>"
   soapWriteApi "${domdoc}"
 }
 function soapGetXtkOption {
@@ -3767,6 +4015,34 @@ function soapGetTrackingLogs {
   set ${opipefailVal}o pipefail
   [[ $iRc -eq 0 ]] || { echo "${RED_COL}ALERT:${RESET_COL} Failed." | STDERR || return $iRc; }
 }
+
+function soapGetWorkFlowActivityInfo {
+  if _CONTAINS -h "$@" || [[ $# -lt 2 || $# -gt 3 ]]; then
+    echo "${YELLOW_COL}Usage:${RESET_COL}   ${FUNCNAME[0]}  [-[h|H] (help)] <workflow-internal-name> <activity-internal-name> [property-name (default 'duration')]"
+    echo "${YELLOW_COL}Example:${RESET_COL} soapGetWorkFlowActivityInfo WKF3101 query | getXMLAttrVal workflowTask duration ."
+    return
+  fi
+  [[ -z ${SESSION_TOKEN} ]] && { echo "${RED_COL}ALERT:${RESET_COL} No logon Session available. Pls login using ${YELLOW_COL}soapLogOnAPI${RESET_COL} first." | STDERR; return 1; }
+
+  local wkfName=$1 activityName=$2 propertyName=$3
+  propertyName=${propertyName:='duration'}
+  local q="<queryDef operation='select' schema='xtk:workflowTask' startPath='/' xtkschema='xtk:queryDef'> \
+    <select> \
+      <node expr='@${propertyName}'/> \
+    </select> \
+    <where> \
+      <condition> \
+        <condition boolOperator='AND' expr='[workflow/@internalName] = \"${wkfName}\"' /> \
+        <condition boolOperator='AND' expr='[@activity] = \"${activityName}\"' /> \
+      </condition> \
+     </where> \
+    <orderBy> \
+      <node expr='@creationDate' sortDesc='true'/> \
+    </orderBy> \
+  </queryDef>"
+
+  soapExecuteQueryAPI "${q}"
+}
 function sendDelivery {
     local instance_param posN=1
     for arg in "$@"; do
@@ -3781,7 +4057,7 @@ function sendDelivery {
         echo "${YELLOW_COL}Usage${RESET_COL}:  ${FUNCNAME[0]} [internal_name] [recepients_qualifier] [-instance:<instance_name>]
           -h,-H,-Help,--help,/?      This help documentation.
           internal_name              String Optional. of the template which will be used for this delivery.'mail' is default.
-          recepients_qualifier       String Optional(max 64 alnum, !#$%&*+-/=?^_'.{|}~. Matches email's local part of the recipient you want to send the delivery to.'+' is default.
+          recepients_qualifier       String Optional. (max 64 alnum, !#$%&*+-/=?^_'.{|}~. Matches email's local part of the recipient you want to send the delivery to.'+' is default.
           instance_name              String Optional. of the instance via which you want to send delivery.
           " | STDERR
           return $(errno ECANCELED | cut -d ' ' -f2)
@@ -3877,6 +4153,17 @@ function sendDelivery {
     nls javascript ${instance_param}  -arg:$1,$2 -file "$(native ${jsFile})"
     rm -f ${jsFile}
 }
+function markWorkFlowStartedForRunwf {
+  local markWkfAsStartedJS="
+  loadLibrary('xtk:shared/nl.js');
+  xtk.workflow.Start('$1');
+  "
+  local jsFile=${TEMP}/${FUNCNAME[0]}_$(date '+%s').js
+  echo "${markWkfAsStartedJS}" > ${jsFile}
+  nls javascript ${instance_param}  -file "$(native ${jsFile})"
+  # rm -f ${jsFile}
+}
+
 function organize {
   if _CONTAINS -h "$@" || _CONTAINS -H "$@"  || _CONTAINS -? "$@"; then
     echo "${YELLOW_COL}Usage${RESET_COL}:  ${FUNCNAME[0]} [-h,-H,-?] [folder_to_organize -- default current folder ] [split_duration -- default 60min ]
@@ -3913,7 +4200,7 @@ function getXtkOption {
     [[ $# -eq 0 ]] && { exec_command_exists nlserver && db=$(getCampaignDatabase) && complete -W "$(csql -Atq --pset=pager=off -d ${db} -c 'select sname from xtkoption' | xargs)" ${FUNCNAME[0]}; echo "${YELLOW_COL}Usage${RESET_COL}:  ${FUNCNAME[0]} [-h(elp)] [-instance:<instance_name>] <xtkoption-1> <xtkoption-2> ...
           -h,-H,-Help,--help,/?      This help documentation.
           -v,-V,--verbose            Prints the data type of option.
-          xtkoption-n                String Ateast one is Mandatory.
+          xtkoption-n                String Atleast one is Mandatory.
           instance_name              String Optional. Campaign instance you want to query for.
           "; return $(errno EINVAL | cut -d ' ' -f2) ; }
     for arg in "$@"; do
@@ -4159,13 +4446,9 @@ function getUpdateAAMConfig {
   done
   dataSourceId=${dataSourceId:='0'}
   destinationId=${destinationId:='0'}
-  local userFullName="$(getUserInfo -fullname)"
-  local ORG_NAME="$(getUserInfo -org)"
-  local updateAMCJS="
-xtk.session.Write(
-  <amcDataSource xtkschema=\"nms:amcDataSource\" _key=\"@name\" name=\"defaultDataSource\" termsAccepted=\"true\" termsAcceptedName=\"${userFullName}\" termsAcceptedTitle=\"${ORG_UNIT_NAME}\" termsAcceptedCompany=\"${ORG_NAME}\" dataSourceId=\"${dataSourceId}\" destinationId=\"${destinationId}\" >
-  </amcDataSource>);
-"
+  local userFullName="$(trim $(getUserInfo -fullname))"
+  local ORG_NAME="$(trim $(getUserInfo -org))"
+  local updateAMCJS="xtk.session.Write( <amcDataSource xtkschema=\"nms:amcDataSource\" _key=\"@name\" name=\"defaultDataSource\" termsAccepted=\"true\" termsAcceptedName=\"${userFullName}\" termsAcceptedTitle=\"${ORG_UNIT_NAME}\" termsAcceptedCompany=\"${ORG_NAME}\" dataSourceId=\"${dataSourceId}\" destinationId=\"${destinationId}\" >  </amcDataSource> );"
   echo "${updateAMCJS}";
 }
 function getUpdateIMSAccountJS {
@@ -4174,7 +4457,7 @@ function getUpdateIMSAccountJS {
         echo "${YELLOW_COL}Usage${RESET_COL}:  ${FUNCNAME[0]} [-i | --ims-env] <stage | prod> [-c | --callback-server] <$(hostname --fqdn)}>
           -h,h,help,-help,--help,?,/? This help documentation.
           -i,--ims-env  <ims env>     IMS Environment name e.g stage, prod... [default: stage]
-          -c,--callback-server        The server which is acting as client to IMS. Is usually the  hostname of machine running campaign server.
+          -c,--callback-server        The server acting as client to IMS. Is usually the hostname of machine running campaign server.
           " | STDERR
         return
   fi
@@ -4186,7 +4469,7 @@ function getUpdateIMSAccountJS {
         echo "${YELLOW_COL}Usage${RESET_COL}:  ${FUNCNAME[0]} [-i | --ims-env] <stage | prod> [-c | --callback-server] <$(hostname --fqdn)>
           -h,h,help,-help,--help,?,/? This help documentation.
           -i,--ims-env  <ims env>     IMS Environment name e.g stage, prod... [default: stage]
-          -c,--callback-server        The server which is acting as client to IMS. Is usually the  hostname of machine running campaign server.
+          -c,--callback-server        The server acting as client to IMS. Is usually the  hostname of machine running campaign server.
           " | STDERR
         return
     ;;
@@ -4225,22 +4508,24 @@ function getUpdateIMSAccountJS {
   IMS_Tenet="acctesting-stage"
   IMS_ProductContext="dma_campaign_classic"
   local VAULT_IMS_CREDS_PATH='secret/campaign/techops-secrets/provisioning/ims_creds_engg'
-  getVaultCreds -s CampTestDebian11-mkt-prod1 1>&2 # Just for login into vault.
+  getVaultCreds -s CampTestDebian11-mkt-prod1 >/dev/null 2>&1 # Just for login into vault.
   if [[ ${IMS_env} =~ .*prod.* ]]; then
-    IMS_ClientId=$(vault read -address=${VAULT_ADDR} ${VAULT_IMS_CREDS_PATH} | grep -E "^prod_client\s" | awk '{print $2}')
+    VAULT_IMS_CREDS_PATH='secret/campaign/techops-secrets/provisioning/ims_creds'
+    IMS_ClientId=$(vault read -address=${VAULT_ADDR} ${VAULT_IMS_CREDS_PATH} | grep "client_id" | grep "prod" | head -n 1 | awk '{print $2}')
     Mkt_Server="https://marketing.${ADOBE_DOMAIN}"
     IMS_Server="https://adobeid-na1.services.${ADOBE_DOMAIN}"
     IMS_OrgId="7380659E53398CAA0A490D4D@AdobeOrg"
     IMS_RightsMask="Campaign - acctesting - (.*)"
     IMS_Tenet="acctesting"
-    IMS_ProductContext=""
+    # IMS_ProductContext=""
+    getSecretPassword >/dev/null 2>&1
     if [ -z ${SECRET_PASSWORD+x} ]; then
       IMS_Secret=$(echo ${encrypted_prod_secret} | ${OPENSSL_BIN} enc -d -pbkdf2 -base64 -aes-256-cbc -nosalt)
     else
       IMS_Secret=$(echo ${encrypted_prod_secret} | ${OPENSSL_BIN} enc -d -pbkdf2 -base64 -aes-256-cbc -nosalt -pass pass:${SECRET_PASSWORD})
     fi
     [[ $? -eq 0 ]] || { echo "Bad decryption key" | STDERR || return $?; }
-    IMS_Secret=$(vault read -address=${VAULT_ADDR} ${VAULT_IMS_CREDS_PATH} | grep prod_client_secret | awk '{print $2}')
+    IMS_Secret=$(vault read -address=${VAULT_ADDR} ${VAULT_IMS_CREDS_PATH} |grep "client_secret" | grep "prod" | head -n 1  | awk '{print $2}')
     echo "// Configure IMS for production"
     local AAM_dataSourceId=${AAM_dataSourceId:='5836'}
     local AAM_destinationId=${AAM_destinationId:='5892'}
@@ -4384,17 +4669,33 @@ function nlpdump
   popd > /dev/null
   if [[ ! -z $1 ]]; then
     local nlmodwf='runwf' nlmodjs='javascript'
-    local get_other_nlmodules_cmd="\$p=Get-Process -Name nlserver -ErrorAction SilentlyContinue | Where-Object { \$_.CommandLine -ilike '* ${nlmodwf} *' -Or \$_.CommandLine -ilike '* ${nlmodjs} *' }; \$p | Format-Table -Autosize -hidetableheaders -Property @{Name='MODULE'; Expression={\$mod=\$_.CommandLine -replace '^.*nlserver[^\s]*[\s]+(.[^\s]+)[\s+].+', '\${1}' ; \$inst='default'; if(\$_.CommandLine -match '^.+-instance:[^\s]+.*') { \$inst=\$_.CommandLine -replace '^.+-instance:([^\s]+).*', '\$1' }; '~' + \$mod + '@' + \$inst}} , @{Name='PID'; Expression={'(' + \$_.Id + ') -'}}, @{Name='Mem'; Expression={[Math]::Round((\$_.WS/(1024.0*1024.)),1).ToString() + ' MB'  + (\$_.CommandLine.ToString() -replace '.+( -name:| -file )([^\s]+).*' , '...\${2}').ToString() }}"
-    isCygwin && wps -Command "${get_other_nlmodules_cmd}" | sed -r 's,\s+, ,g' >> /tmp/nlpdump.tmp
+    if isCygwin; then
+      local get_other_nlmodules_cmd="\$p=Get-Process -Name nlserver -ErrorAction SilentlyContinue | Where-Object { \$_.CommandLine -ilike '* ${nlmodwf} *' -Or \$_.CommandLine -ilike '* ${nlmodjs} *' }; \$p | Format-Table -Autosize -hidetableheaders -Property @{Name='MODULE'; Expression={\$mod=\$_.CommandLine -replace '^.*nlserver[^\s]*[\s]+(.[^\s]+)[\s+].+', '\${1}' ; \$inst='default'; if(\$_.CommandLine -match '^.+-instance:[^\s]+.*') { \$inst=\$_.CommandLine -replace '^.+-instance:([^\s]+).*', '\$1' }; '~' + \$mod + '@' + \$inst}} , @{Name='PID'; Expression={'(' + \$_.Id + ') -'}}, @{Name='Mem'; Expression={[Math]::Round((\$_.WS/(1024.0*1024.)),1).ToString() + ' MB'  + (\$_.CommandLine.ToString() -replace '.+( -name:| -file )([^\s]+).*' , ' ...\${2}').ToString() }}"
+      wps -Command "${get_other_nlmodules_cmd}" | sed -r 's,\s+, ,g' >> /tmp/nlpdump.tmp
+    else
+      for p in $(pgrep -f "nlserver (${nlmodwf}|${nlmodjs})"); do
+        local proc="$(ps -f --no-headers -o rss,command --pid $p)"
+        local module=$(echo $proc | awk '{print $3}')
+        local mem=$(echo $proc | awk '{print $1}')
+        mem=$[$mem/1024]
+        [[ $mem -gt 1024 ]] && mem="$[$mem/1024] GB" || mem="${mem} MB"
+        local inst=$(echo $proc | sed -r "s,.*-instance:([^[:space:]]*)(\s.*|$),\1,g")
+        [[ -z $inst ]] && inst='default'
+        local metaInfo=$(echo $proc | sed -r "s,.*-(name|file):([^[:space:]]*)(\s.*|$),\1:::\2,g" | awk -F":::" '{print $2}')
+        [[ ! -z ${metaInfo} ]] && metaInfo="...${metaInfo}"
+        echo "~${module}@${inst} (${p}) - ${mem} ${metaInfo}" >> /tmp/nlpdump.tmp
+      done
+    fi
   fi
   cat /tmp/nlpdump.tmp | d2u | grep -v '^\s*$'
 }
 function nls {
   local _DEBUG_LAUNCHER_
+  local rebuildCache
   [[ ${1,,} = '-d' ]] && shift  && { isCygwin && _DEBUG_LAUNCHER_='launch VsJITDebugger.exe '  || _DEBUG_LAUNCHER_='gdb --args '; }
   isCygwin && [[ ! -z ${_DEBUG_LAUNCHER_} ]] && { tasklist /V /NH /FI "IMAGENAME EQ devenv.exe" /FI "STATUS EQ RUNNING" | grep -i devenv  > /dev/null; [[ $? -ne 0 ]] && echo "${GREEN_COL}INFO:${RESET_COL} No existing Visual studio instance found to be running.You are advised to open visual studio and corresponding project/solution/source code before you attach to the Just in Time Debugger"; }
   exec_command_exists nlserver || { echo "nlserver: Command not found." | STDERR || return $? ; }
-  touch /tmp/nlpdump && [[ "$@" =~ ^-[Ff][[:space:]]*pdump.*$ ]] && echo "Rebuilding pdump cache..." && set -- ${@:2:$#} && true > /tmp/nlpdump
+  touch /tmp/nlpdump && [[ "$@" =~ ^-[Ff][[:space:]]*pdump.*$ ]] && echo "Rebuilding pdump cache..." && set -- ${@:2:$#} && true > /tmp/nlpdump && rebuildCache=1
   local colorOutput=1
   [[ "$@" =~ ^-[pP][[:space:]]*pdump.*$ ]] && unset colorOutput && set -- ${@:2:$#}
 
@@ -4434,7 +4735,7 @@ function nls {
     done
     popd > /dev/null
   else
-    [[ "$@" =~ (^|[[:space:]])-verbose($|[[:space:]]) ]] && [[ ! "$@" =~ (^|[[:space:]])-traccefilter:.+($|[[:space:]]) ]] && extraArgs="${extraArgs} -tracefilter:wdbc,soap"
+    [[ "$@" =~ (^|[[:space:]])-verbose($|[[:space:]]) ]] && [[ ! "$@" =~ (^|[[:space:]])-tracefilter:.+($|[[:space:]]) ]] && extraArgs="${extraArgs} -tracefilter:wdbc,soap"
   fi
 #  isCygwin && [[ "$@" =~  ^javascript[[:space:]]+.* ]] && jsfile=$(_KEY_HAS_VALUE -file $@) && [[ X"${jsfile}" != "$(native $jsfile)" ]] && echo "specify -file as -file '$(native $jsfile)'"
   if [[ "$@" =~  ^javascript[[:space:]]+.* ]]; then
@@ -4444,6 +4745,18 @@ function nls {
     [[ -f ${uf} && -s ${uf} ]] || echo "${RED_COL}ALERT:${RESET_COL} specified js file(${uf}) is invalid or does not exist."
     isCygwin && [[ X${uf,,} = X${jsFile,,} ]] && echo "S{YELLOW_COL}Alert:${RESET_COL} Must specify js file path in Windows/DOS path format."
   fi
+  if [[ "$@" =~  (^|[[:space:]])runwf($|[[:space:]]) ]]; then
+    local args=( $(echo "$@") )
+    for arg in ${args[@]}; do
+        if [[ $arg =~ ^-name:([^[:space:]])+$ ]]; then
+          local workflowName=${arg#*:}
+          readEx "Press ${YELLOW_COL}Enter${RESET_COL} to continue starting workflow '${workflowName}' OrElse ${YELLOW_COL}Ctrl+c${RESET_COL} to abort...Waiting for " 10 " seconds..."
+          markWorkFlowStartedForRunwf $workflowName
+          break
+        fi
+    done
+  fi
+
   echo "Invoking ${YELLOW_COL}${_DEBUG_LAUNCHER_}nlserver $@ ${extraArgs}${RESET_COL}"
   [[ -z $isASyncCall ]] || echo "(in Backgroud)"
   if isCygwin; then
@@ -4461,9 +4774,15 @@ function nls {
     fi
     popd > /dev/null
   fi
-  local isUnlistedModule
-  [[ "$@" =~  ^(javascript|runwf)[[:space:]]+.* ]] && isUnlistedModule=1
-  { sleep 2; (( nlpdump ${isUnlistedModule} | tee >( tail -n +2 | LC_ALL=C sort | column -t -s ' ' >&3) | head -n 1) 3>&1) > /tmp/${FUNCNAME[0]}.tmp; mv -f /tmp/${FUNCNAME[0]}.tmp /tmp/nlpdump; } &
+  [[ "$@" =~  ^(javascript|runwf)[[:space:]]+.* ]] && rebuildCache=1
+  if [[ -z ${rebuildCache} ]]; then
+    { sleep 2; (( nlpdump | tee >( tail -n +2 | LC_ALL=C sort | column -t -s ' ' >&3) | head -n 1) 3>&1) > /tmp/${FUNCNAME[0]}.tmp; mv -f /tmp/${FUNCNAME[0]}.tmp /tmp/nlpdump; } &
+  else
+    echo "Listing external modules..."
+    sleep 2
+    (( nlpdump ${rebuildCache} | tee >( tail -n +2 | LC_ALL=C sort | column -t -s ' ' >&3) | head -n 1) 3>&1) > /tmp/${FUNCNAME[0]}.tmp
+    mv -f /tmp/${FUNCNAME[0]}.tmp /tmp/nlpdump
+  fi
 }
 function setupSSHKeys {
   local valid_RSA valid_ed25519
@@ -4498,15 +4817,15 @@ function setupSSHKeys {
       chmod 400 ~/.ssh/id_ed25519*
       ssh-add ~/.ssh/id_ed25519
       wps -Command "Set-Clipboard -Value '$(cat ~/.ssh/id_ed25519.pub)'"
-      echo "${GREEN_COL}INFO:${RESET_COL} Open ${YELLOW_COL}https://git.${ADOBE_CORP_DOMAIN}/settings/keys${RESET_COL} and ${YELLOW_COL}https://iam.${ADOBE_CORP_DOMAIN}/#/sshkey${RESET_COL} links in your browser"
+      echo "${GREEN_COL}INFO:${RESET_COL} Open ${YELLOW_COL}https://git.${ADOBE_CORP_DOMAIN}/settings/keys${RESET_COL} and ${YELLOW_COL}https://iam.${ADOBE_CORP_DOMAIN}/accounts/services${RESET_COL} links in your browser"
       echo "${GREEN_COL}INFO:${RESET_COL} Click on New/Manage SSH keys buttons and and paste the contents of ~/.ssh/id_ed25519.pub file in Key filed of dialog and then press Add SSH Key"
-      echo "${GREEN_COL}INFO:${RESET_COL} Content ~/.ssh/id_ed25519.pub is as shown below( ${YELLOW_COL}and which has also been copied to your clipboard${RESET_COL} ) :"
+      echo "${GREEN_COL}INFO:${RESET_COL} Content ~/.ssh/id_ed25519.pub is as shown below( ${YELLOW_COL}and has also been copied to your clipboard${RESET_COL} ) :"
       cat ~/.ssh/id_ed25519.pub
       local attempts=32
       flushInput
       echo "Press any key to open links in browser"
       wps -Command "Start-Process https://git.${ADOBE_CORP_DOMAIN}/settings/keys"
-      wps -Command "Start-Process https://iam.${ADOBE_CORP_DOMAIN}/#/sshkey"
+      wps -Command "Start-Process https://iam.${ADOBE_CORP_DOMAIN}/accounts/services"
       flushInput
       read -p "${RED_COL}ALERT:${RESET_COL} If you are satisfied with your sshkey setup..Press any key to continue else Press Ctrl+C to abort." yn
       [[ $? -eq 0 ]] && { cp -f ~/.ssh/id* ${USER_SHARE_LOCATION}; for f in $(find ${USER_SHARE_LOCATION} -type f -name "id*" | sed -r 's,.*/,,g'); do chmod 644 "${USER_SHARE_LOCATION}${f}"; done; }
@@ -4708,65 +5027,41 @@ function cpToJumpHost {
 }
 function scpToRemote {
   local rhost;
-  local srcfiles;
+  local rhost=$(echo $1 | sed -r 's,^(.*:[/]+)([-\.[:alnum:]]+)[/]*.*,\2,g')
+  [[ ! -z $rhost ]] && [[ X${rhost%%.*} = X${rhost} ]] && rhost=${rhost}.${HOSTED_CAMPAIGN_DOMAIN}
+  shift
+  local srcfiles=()
   for file in "$@"; do
     if [ ! -f $file ]; then
       break
     fi
-    srcfiles+=($file)
+    srcfiles+=("${file}")
     shift
   done
-  local rhost=$(echo $1 | sed -r 's,^(.*:[/]+)([-\.[:alnum:]]+)[/]*.*,\2,g')
-  [[ ! -z $rhost ]] && [[ X${rhost%%.*} = X${rhost} ]] && rhost=${rhost}.${HOSTED_CAMPAIGN_DOMAIN}
-  shift
   if [[ ${#srcfiles[@]} -eq 0 ]] || [[ -z ${rhost} ]]; then
-    echo "${YELLOW_COL}Usage${RESET_COL}: ${FUNCNAME[0]} <local-src-file-path> <remote-dest-host> [<remote-dest-file-path>]
-            local-src-file-path           ${YELLOW_COL}Mandatory${RESET_COL} local source file name to copy.
-            remote-dest-host              ${YELLOW_COL}Mandatory${RESET_COL} Remote host on which to eventually copy the file to.
+    echo "${YELLOW_COL}Usage${RESET_COL}: ${FUNCNAME[0]} <remote-dest-host>  <local-src-file-path> [<remote-dest-file-path>]
+            remote-dest-host              ${YELLOW_COL}Mandatory${RESET_COL} Remote host to eventually copy the file to.
+            local-src-file-path(s)        ${YELLOW_COL}Mandatory${RESET_COL} local source file name(s) to copy.
             remote-dest-file-path         ${GREEN_COL}Optional${RESET_COL}  Remote destination file  path. if remote directory does not exist it will "not" create it.
                                                        default destination folder is home folder of user ${YELLOW_COL}$(whoami)${RESET_COL} on remote machine
                                                        and file name is same as source file name" | STDERR
     return
     fi
+
   local dest=$1
   if [ ! -z $dest ]; then
     dest=${dest%/}/
     shift
   fi
   local retCode
-#  local scpOpts="$@"
-#  echo "files: ${srcfiles[@]} , host = ${rhost} , options = ${scpOpts}" && return
   [[ "X${rhost#*.}" = Xrd.${HOSTED_CAMPAIGN_DOMAIN} ]] && [[ $(nslookup ${rhost} | grep -E ^Name: | awk '{ print $2; }') =~ ^[A-Za-z][A-Za-z][0-9]+\.${ADOBE_CORP_DOMAIN}$ ]] && echo "Using prod user and legacy password for connecting to rd-dev machine." && { scp ${SCP_OPTS} ${srcfiles[@]} prod@${rhost}:${dest} $@; retCode=$?; [[ ${retCode} -eq 0 ]] && echo ${rhost} >> ~/.hosts; return ${retCode} ; }
-  retCode=1
   sConn
-  for src in "${srcfiles[@]}"; do
-#   scp -S ~/scon ${SCP_OPTS} ${src} $(whoami)@$(getJumpHost | sed -r "s,^.*@,${rhost}@,g"):${dest}$(basename ${src})
-    local scpSingleSignOnPrompt=".*Hit enter to send Okta Verify push notification or provide OTP.*"
-    local scpCmd="scp -S ${HOME}/scon ${SCP_OPTS} ${src} $(whoami)@$(getJumpHost | sed -r "s,^.*@,${rhost}@,g"):${dest}$(basename ${src})"
-    # local REMOTE_CMD_OUTPUT_BUFFER=${SSH_REMOTE_CMD_OUTPUT_BUFFER:=100}
-    # No way to other way to capture scp progress bar if we want to filter output buffer.
-    execute_with_UserInteraction "${scpCmd}" "${scpSingleSignOnPrompt}"
-
-    # local tmpFile="/tmp/$(basename ${src}).$(date '+%d%b%Y_%H_%M_%S_%s')"
-    # cpToJumpHost ${src} $tmpFile
-    # if [ -z $dest ]; then
-      # local fName=$(basename ${src})
-      # ssh ${SSHR_OPTS} $(whoami)@$(getJumpHost) "scp ${scpOpts} $tmpFile ${rhost}:${fName}; echo Remote Home: \${HOME}"
-      # [[ $? -eq 0 ]] && retCode=0
-    # else
-      # local fName
-      # if [[ ${dest} =~  /$ ]]; then
-        # fName="${dest}$(basename ${src})"
-      # elif [[ ${dest} =~ \.[[:alnum:]]*$ ]] && [[ ${#srcfiles[@]} -eq 1 ]]; then
-        # fName="${dest}"
-      # else
-        # fName="${dest}/$(basename ${src})"
-      # fi
-      # ssh ${SSHR_OPTS} $(whoami)@$(getJumpHost) "scp ${scpOpts} $tmpFile ${rhost}:${fName}; echo Remote Home: \${HOME}"
-      [[ $? -eq 0 ]] && retCode=0
-    # fi
-  done
-  [[ ${retCode} -eq 0 ]] && echo ${rhost} >> ~/.hosts
+  local scpSingleSignOnPrompt=".*Hit enter to send Okta Verify push notification or provide OTP.*"
+  local scpCmd="scp -S ${HOME}/scon ${SCP_OPTS} ${srcfiles[@]} $(whoami)@$(getJumpHost | sed -r "s,^.*@,${rhost}@,g"):${dest}"
+  # local REMOTE_CMD_OUTPUT_BUFFER=${SSH_REMOTE_CMD_OUTPUT_BUFFER:=100}
+  # No other way to capture scp progress bar if we want to filter output buffer.
+  execute_with_UserInteraction "${scpCmd}" "${scpSingleSignOnPrompt}"
+  [[ $? -eq 0 ]] && echo ${rhost} >> ~/.hosts
 }
 function cpFromJumpHost {
   sConn
@@ -4774,18 +5069,18 @@ function cpFromJumpHost {
 }
 function scpFromRemote {
     if [ $# -lt 2 -o $# -gt 3 ]; then
-        echo "${YELLOW_COL}Usage${RESET_COL}: ${FUNCNAME[0]} <remote-src-file-path> <remote-src-host> [<local-dest-file-path>]
+        echo "${YELLOW_COL}Usage${RESET_COL}: ${FUNCNAME[0]} <remote-src-host> <remote-src-file-path> <local-dest-file-path>]
+            remote-src-host               ${YELLOW_COL}Mandatory${RESET_COL} Remote source host from where to pick up the file from.
             remote-src-file-path          ${YELLOW_COL}Mandatory${RESET_COL} Remote source file name to copy.
-            remote-src-host               ${YELLOW_COL}Mandatory${RESET_COL} Remote source host from which to pick up the file from.
             local-dest-file-path          ${GREEN_COL}Optional${RESET_COL}  Local destination file path.
                                                        default destination folder is current folder on local machine
                                                        and file name is same as source file name" | STDERR
     return
     fi
-  local src="$1"
-  local rhost=$(echo $2 | sed -r 's,^(.*:[/]+)([-\.[:alnum:]]+)[/]*.*,\2,g')
+  local rhost=$(echo $1 | sed -r 's,^(.*:[/]+)([-\.[:alnum:]]+)[/]*.*,\2,g')
   [[ ! -z $rhost ]] && [[ X${rhost%%.*} = X${rhost} ]] && rhost="${rhost}.${HOSTED_CAMPAIGN_DOMAIN}"
   shift
+  local src="$1"
   shift
   local tmpFile="/tmp/$(basename ${src}).$(date '+%d%b%Y_%H_%M_%S_%s')"
   local fName="$1"
@@ -4808,27 +5103,48 @@ function scpFromRemote {
 #  cpFromJumpHost $tmpFile $fName ${scpOpts}
     return ${retCode}
 }
+
+function ellipsize
+{
+  [[ $# -eq 0 ]] && echo "${YELLOW_COL}Usage:${RESET_COL}  ${FUNCNAME[0]} <length> [l(eft) | r(ight) | c(entre)->default]  [inputString] ... Or PIPE-IN" && return
+  local outLen=$1
+  shift
+  local align=${1,,}
+  { [[ $align = 'c' || $align = 'l' || $align = 'r' ]] && shift; } || align='c' # Default is 'c'enter.
+  local s="$([[ -p /dev/stdin ]] && cat - || echo "$@")"
+  local inpLen=${#s}
+  [[ $inpLen -le ${outLen} ]] && echo $s && return
+  if [[ $outLen -le 2 ]] || [[ $outLen -le 3 && ${align} = 'c' ]]; then
+    echo $s
+    return 1
+  fi
+  local ellipsis='..'
+  outLen=$[${outLen} - ${#ellipsis}]
+
+  [[ ${align} = 'l' ]] && echo "${ellipsis}${s:$[${inpLen}-${outLen}]}" && return
+  [[ ${align} = 'r' ]] && echo "${s:0:${outLen}}${ellipsis}" && return
+
+  local lChars=$[${outLen}/2]
+  local rChars=$[${outLen} - ${lChars}]
+  echo "${s:0:${lChars}}${ellipsis}${s:$[${inpLen}-${rChars}]}"
+}
+
 function bash_prompt_command {
-  # How many characters of the $PWD should be kept
-  local pwdmaxlen=25
-  # Indicate that there has been dir truncation
-  local dir=${PWD##*/}
-  pwdmaxlen=$(( ( pwdmaxlen < ${#dir} ) ? ${#dir} : pwdmaxlen ))
-  NEW_PWD=${PWD/#$HOME/\~}
-  NEW_PWD=${NEW_PWD#/cygdrive/}
-  NEW_PWD=${NEW_PWD#/mnt/}
-  local trunc_symbol="${NEW_PWD:0:2}.."
-  local pwdoffset=$(( ${#NEW_PWD} - pwdmaxlen ))
-  if [ ${pwdoffset} -gt "0" ]
-  then
-    NEW_PWD=${NEW_PWD:$pwdoffset:$pwdmaxlen}
-    NEW_PWD=${trunc_symbol}/${NEW_PWD#*/}
-  fi
+  [[ $? -eq 127 ]] && history -d $((HISTCMD - 1))
+  local tPWD=${PWD/#$HOME/\~}
+  tPWD=${tPWD#/cygdrive/}
+  tPWD=${tPWD#/mnt/}
+  tPWD=${tPWD:0:2}$(ellipsize 22 l ${tPWD:2})
+
   if [[ -z ${ENABLE_GIT_PS1} ]]; then
-    [[ ${OWD} != ${PWD} ]] && CUR_CAMP_GIT_BRANCH=$(currentBranch 2> /dev/null) && OWD=${PWD}
-    [[ "${LAST_COMMAND}" =~ ^[^[:space:]]*git[\"]?[[:space:]]+checkout[[:space:]]+ ]] && CUR_CAMP_GIT_BRANCH=$(currentBranch 2> /dev/null)
-    [[ ! -z ${CUR_CAMP_GIT_BRANCH} ]] && NEW_PWD="${NEW_PWD}:"
+    if [[ ${OWD} != ${PWD} ]]; then
+      CUR_CAMP_GIT_BRANCH=$(ellipsize $[50-${#tPWD}] $(currentBranch 2> /dev/null))
+      OWD=${PWD}
+    fi
+    [[ "${LAST_COMMAND}" =~ ^[^[:space:]]*git[\"]?[[:space:]]+checkout[[:space:]]+ ]] && CUR_CAMP_GIT_BRANCH=$(ellipsize $[50-${#tPWD}] $(currentBranch 2> /dev/null))
+    [[ ! -z ${CUR_CAMP_GIT_BRANCH} ]] && tPWD="${tPWD}:"
   fi
+  NEW_PWD=${tPWD}
 }
 if [[ ! -z ${ENABLE_GIT_PS1} ]]; then
 # export GIT_PS1_COMPRESSSPARSESTATE=
@@ -4998,10 +5314,7 @@ function isDevToolAvailable {
   if isCygwin; then
     local vs_version=$(getIDEVersion)
     case "$vs_version" in
-      'Microsoft Visual Studio 2012' | 'Microsoft Visual Studio 2013')
-        true
-      ;;
-      'Microsoft Visual Studio 2019'* )
+      'Microsoft Visual Studio 2012' | 'Microsoft Visual Studio 2013' | 'Microsoft Visual Studio 2019' | 'Microsoft Visual Studio 2022')
         true
       ;;
       *)
@@ -5244,17 +5557,31 @@ function registerRootCert {
     done
   else
     local certFile=ca-certificates.crt
-    sudo chown $(whoami) /etc/ssl/certs/${certFile}
+    [[ -e /etc/ssl/certs/${certFile} ]] || certFile=ca-bundle.trust.crt
+    [[ -e /etc/ssl/certs/${certFile} ]] || certFile=ca-bundle.crt
+    certFile=$(realpath /etc/ssl/certs/${certFile})
+    sudo chown $(whoami) ${certFile}
     # remove/delete any existing 'acc-dev-rootCA' certificates.
-    sudo sed -i -r "/^[#[:space:]]+acc-dev-rootCA.${ADOBE_CORP_DOMAIN}/,/^-+END CERTIFICATE-+$/d" /etc/ssl/certs/${certFile}
-    local tokeep=$(wc -c <<< "$(< "/etc/ssl/certs/${certFile}")")
-    dd if=/dev/null of="/etc/ssl/certs/${certFile}" bs=1 seek=${tokeep}
+    sudo sed -i -r "/^[#[:space:]]+acc-dev-rootCA.${ADOBE_CORP_DOMAIN}/,/^-+END CERTIFICATE-+$/d" ${certFile}
+    local tokeep=$(wc -c <<< "$(< "${certFile}")")
+    sudo dd if=/dev/null of="${certFile}" bs=1 seek=${tokeep}
     # Add new certificate.
-    echo -e "\n# acc-dev-rootCA.${ADOBE_CORP_DOMAIN}" >> /etc/ssl/certs/${certFile}
-    cat ${rootCA} | dos2unix >> /etc/ssl/certs/${certFile}
-    sudo chown root /etc/ssl/certs/${certFile}
+    echo -e "\n# acc-dev-rootCA.${ADOBE_CORP_DOMAIN}" | sudo tee -a ${certFile} > /dev/null
+    cat ${rootCA} | dos2unix | sudo tee -a ${certFile} > /dev/null
+    sudo chown root ${certFile}
   fi
   popd
+}
+function installSquidProxy {
+  toggleXMLLintUse
+  local url=$(curl -s https://squid.diladele.com | grep squid.msi | head -n 1 | getXMLAttrVal a href)
+  toggleXMLLintUse
+  pushd ${TMP} > /dev/null
+  download ${url}
+  local installer=${url##*/}
+  [[ -e ${installer} ]] || { echo "${RED_COL}ALERT:${RESET_COL} Failed to download installer"; return 1; }
+  msiexec.exe /i ${installer}
+  popd > /dev/null
 }
 function installPowershell {
   _CONTAINS -h "$@" && echo "${YELLOW_COL}Usage:${RESET_COL}  ${FUNCNAME[0]} [ -h(elp) -f(force) ] -- Installs latest version of Windows Powershell 7." && return
@@ -5371,7 +5698,7 @@ if ! exec_command_exists javac || [ "X${1,,}" = "X-f" ]; then
 fi
 }
 function installIntelliJ {
-    isCygwin || { echo "${FUNCNAME[0]} Not available on $(getOS)" | STDERR || return $?; }
+    isCygwin || { echo "'${FUNCNAME[0]}' Not available on $(getOS)" | STDERR || return $?; }
     if ! exec_command_exists idea64; then
         local intellij_idea_community_version='2022.3.1'
         pushd /tmp
@@ -5391,7 +5718,7 @@ function installMaven {
     _CONTAINS -h "$@" && echo "${YELLOW_COL}Usage:${RESET_COL}  ${FUNCNAME[0]} [ -h(elp) -f(force) ] -- Installs maven ${mavenVersion}." && return
     if exec_command_exists mvn && ! _CONTAINS -f "$@"; then
         mvn -version
-        echo "${GREEN_COL}INFO:${RESET_COL} Maven already exists @ $(which mvn)... Remove maven to install it afresh."
+        echo "${GREEN_COL}INFO:${RESET_COL} Maven already exists @ $(type -P mvn)... Remove maven to install it afresh."
         return 0
     fi
     installJava
@@ -5406,60 +5733,95 @@ function installMaven {
     toggleXMLLintUse
     [[ ${iRc} -ne 0 ]] && return ${iRc}
     unzip -o apache-maven-${mavenVersion}-bin.zip
-    local cpCmd="$(which cp) -f -p -r"
+    local cpCmd="$(type -P cp) -f -p -r"
     sudo ${cpCmd} apache-maven-${mavenVersion}/* /usr/local/
-    find . -iname *.dll -exec sudo chmod +x {} \;
-    which mvn
+    find . -iname "*.dll" -exec sudo chmod +x {} \;
+    type -P mvn
     mvn --version
     popd
 }
+function installMiller {
+#> mlr --csv reorder -f hostname,application_name,acc_build sample.txt | mlr --csv sort -f hostname | mlr --csv --opprint cat > sample_f.txt
+#> mlr --csv reorder -f hostname,application_name,acc_build sample.txt | mlr --csv sort -f state | mlr --csv put '
+#  $process_uptime_seconds = int($process_uptime_seconds);
+#  $process_uptime_seconds = int($process_uptime_seconds / 86400) . "d " . int($process_uptime_seconds % 86400 / 3600) . "h " . int($process_uptime_seconds % 3600 / 60) . "m " . int($process_uptime_seconds % 60) . "s";'
+#  | mlr --csv --opprint cat > sample_f1.txt
+#
+  if isCygwin; then
+    pushd $TMP
+    local version='6.13.0'
+    local installer="miller-${version}-windows-amd64.zip"
+    download https://github.com/johnkerl/miller/releases/download/v${version}/${installer}
+    unzip -j ${installer}
+    \cp -f -p mlr.exe /usr/local/bin/
+    chmod 755 /usr/local/bin/mlr.exe
+    download https://github.com/golang/go/raw/master/lib/time/zoneinfo.zip
+    \cp -f -p zoneinfo.zip /usr/share/zoneinfo/
+    native /usr/share/zoneinfo/zoneinfo.zip
+    wps -Command "[Environment]::SetEnvironmentVariable('ZONEINFO','$(native /usr/share/zoneinfo/zoneinfo.zip)','Machine')"
+    export ZONEINFO="$(native /usr/share/zoneinfo/zoneinfo.zip)"
+    mlr help topics
+    mlr --version
+    popd
+  else
+    aptS install miller
+  fi
+}
 function installNode {
   pushd . > /dev/null
-  cd ${ACC_WEB_UI}
-  echo "Applicable node versions are:"
-  jq .engines.node package.json | sed -r 's,[^0-9.], ,g' | awk '{for(i=1;i<=NF;++i){print $i;}}' | sort -t '.' -k1,1r -k2,2r -k3,3r > /tmp/nodeVersions
+# jq .engines.node package.json | sed -r 's,[^0-9.], ,g' | awk '{for(i=1;i<=NF;++i){print $i;}}' | sort -t '.' -k1,1r -k2,2r -k3,3r > /tmp/nodeVersions
+  curl -s https://nodejs.org/download/release/ | grep -i "latest" | xmlize | getXMLAttrVal a href '.' | grep ^latest | grep -E "[[:digit:].]{2,}" | awk -F'[/v]' '{print $2}' | sort -r -n -t . -k 1 > /tmp/nodeVersions
   local nodeVersions=$(cat /tmp/nodeVersions | xargs)
   echo ${nodeVersions}
   local nodeV=$(rlwrap -S "Select Node Version to install: " -H /tmp/nodeVersions -P $(head -n 1 /tmp/nodeVersions) -o cat)
   pushd $TMP > /dev/null
-  download https://nodejs.org/download/release/v${nodeV}/node-v${nodeV}-x64.msi
-  [[ -f node-v${nodeV}-x64.msi ]] && msiexec.exe /i node-v${nodeV}-x64.msi || { echo "Failed to install node version v${nodeV}-x64" ; return 1; }
+
+  local url=https://nodejs.org$(curl -s https://nodejs.org/download/release/latest-v${nodeV}/ | grep "<a" | grep x64 | grep msi | xmlize | getXMLAttrVal a href)
+  download $url
+  [[ -f ${url##*/} ]] && msiexec.exe /i ${url##*/} || { echo "Failed to install node version ${nodeV}" ; return 1; }
   popd > /dev/null
   popd > /dev/null
+
   refreshEnvPath_Windows
 }
 function installPython3 {
-  local pythonVersion="3.9.9"
   _CONTAINS -h "$@" && echo "${YELLOW_COL}Usage:${RESET_COL}  ${FUNCNAME[0]} [ -h(elp) ] -- Installs python ${pythonVersion}." && return
   if ! isCygwin; then
+    local pythonVersion="3.13.2"
     local pipBinary=pip${pythonVersion%%.*}
     if ! exec_command_exists python3 || [ "X${1,,}" = "X-f" ]; then
       aptS install python3 python3-pip python3-requests
     fi
     local cur_pythonVersion=$(python3 -V | awk '{print $2}')
-    if awk "BEGIN {exit !(${cur_pythonVersion%.*} < 3.9 )}"; then
-      aptS remove python3 python3-pip
-      aptS autoremove
+    if isSecondVersionNewer $cur_pythonVersion ${pythonVersion}; then
       pushd /tmp > /dev/null
       download https://www.python.org/ftp/python/${pythonVersion}/Python-${pythonVersion}.tgz
       tar xvf Python-${pythonVersion}.tgz
       pushd Python-${pythonVersion} > /dev/null
       ./configure --enable-optimizations
+      sudo make -j$(nproc)
       sudo make altinstall
       popd > /dev/null
       popd > /dev/null
-      pushd $(dirname $(which python${pythonVersion%.*})) > /dev/null
-      sudo ln -s python${pythonVersion%.*} python${pythonVersion%%.*}
-      sudo ln -s pip${pythonVersion%.*} ${pipBinary}
-      popd > /dev/null
+      local majorVersion="${pythonVersion%%.*}"
+      local minorVersion="${pythonVersion#*.}"; minorVersion="${minorVersion%%.*}"
+      local priority="$((majorVersion * 100 + minorVersion))"
+      # Determine the correct alternative name (python3 or python4)
+      local pythonAlternative="python${majorVersion}"
+      # Install the version under the correct alternative (python3 or python4)
+      sudo update-alternatives --install "/usr/bin/${pythonAlternative}" "${pythonAlternative}" "/usr/local/bin/python${pythonVersion}" "${priority}"
+      sudo update-alternatives --auto "${pythonAlternative}"  # Auto-select the highest-priority version
+      # Ensure /usr/bin/python always points to the latest Python version
+      sudo update-alternatives --install /usr/bin/python python "/usr/bin/${pythonAlternative}" "${priority}"
+      sudo update-alternatives --auto python
     else
       pythonVersion=${cur_pythonVersion}
     fi
     if [ "X${1,,}" = "X-f" ]; then
       aptS install python3-requests
-      sudo ${pipBinary} install --upgrade pip
-  #   sudo ${pipBinary} install -U numpy==1.19.3
-      sudo ${pipBinary} install setuptools wheel fire options num2words opencv-python pyttsx3 multipart requests numpy
+      ${pipBinary} install --upgrade pip
+  #   ${pipBinary} install -U numpy==1.19.3
+      ${pipBinary} install setuptools wheel fire options num2words opencv-python pyttsx3 multipart requests numpy tzlocal
       return 0
     fi
   fi
@@ -5467,8 +5829,13 @@ function installPython3 {
     readEx "About to update  python v3 install inside cygwin " 5 " seconds ..." || echo
     aptS install python3 python3-pip python3-requests
     python -m pip install --upgrade pip
-    pip install setuptools wheel fire options num2words opencv-python pyttsx3 multipart numpy
+    type pip || { type pip3 && ln -s $(type -p pip3) /usr/local/bin/pip; }
+    pip install setuptools wheel fire options num2words opencv-python pyttsx3 multipart numpy tzlocal
+    2envsetup
+    echo | python utils.py
+    popd > /dev/null
   fi
+  isCygwin || return;
   if [ -z "$(findW -i python3 -u python.exe)" ] || [ "X${1,,}" = "X-f" ]; then
     readEx "About to update  python v3 install on wndows but outside of cygwin " 5 " seconds ..." || echo
     local yn
@@ -5506,8 +5873,11 @@ function installPython3 {
     ./python3Installer.exe /passive InstallAllUsers=1 PrependPath=1
     refreshEnvPath_Windows
     "$(findW -i python3 -u python.exe)" -m pip install --upgrade pip
-    "$(findW -i python3 -u pip.exe)" install -U setuptools wheel fire options num2words opencv-python pyttsx3 multipart requests numpy
+    "$(findW -i python3 -u pip.exe)" install -U setuptools wheel fire options num2words opencv-python pyttsx3 multipart requests numpy tzlocal
     "$(findW -i python3 -u pip.exe)" install -U pywin32 pypiwin32 psutil wmi
+    2envsetup
+    echo | "$(findW -i python3 -u python.exe)" utils.py
+    popd > /dev/null
     echo -ne "${RED_COL}ALERT:${RESET_COL} Do you want to install Tesseract (used as OCR for text detection in an image)? (y/[n])?"
     read yn
     yn=${yn:0:1}
@@ -5559,242 +5929,94 @@ function createPR {
   gh pr create --title "${title}" --body "Pull request body" -B ${TO_DEST_MASTER_BRANCH} -H ${FROM_SRC_FEATURE_BRANCH} --fill-verbose
 }
 function fixDebianRepo {
-  isCygwin && { echo "${FUNCNAME[0]} Not available on $(getOS)" | STDERR || return $?; }
+  isCygwin && { echo "'${FUNCNAME[0]}' Not available on $(getOS)" | STDERR || return $?; }
   pushd ${TMP} > /dev/null
   download https://github.com/davidfoerster/aptsources-cleanup/releases/download/v0.1.7.5.2/aptsources-cleanup.pyz
   chmod a+x aptsources-cleanup.pyz
   sudo ./aptsources-cleanup.pyz -y
   popd > /dev/null
 }
+function gitinit {
+  git init
+  git config --global core.autocrlf false
+  isCygwin && git config --global core.autocrlf true
+  git config --global core.editor vim
+  git config --global init.defaultBranch ${MASTER_BRANCH}
+  git config --global user.name "$(getUserInfo -fullname)"
+  git config --global user.email "$(whoami)@${ADOBE_DOMAIN}"
+  git config --global pull.rebase true
+  git config --global fetch.prune true
+  ## Diff
+  git config --global diff.colorMoved zebra
+  # Diff staged files highlighting individual character changes and space changes (see https://stackoverflow.com/questions/3231759/how-can-i-visualize-per-character-differences-in-a-unified-diff-file/25634420#25634420)
+  git config --global alias.ds "diff --cached --color-words='[^[:space:]]|([[:alnum:]]|UTF_8_GUARD)+'"
+  # Diff HEAD or specified commit with previous one highlighting individual character changes and space changes
+  git config --global alias.diffp '!f() { git diff "${1-HEAD}"^.."${1-HEAD}" --color-words="[^[:space:]]|([[:alnum:]]|UTF_8_GUARD)+"; }; f'
+  git config --global alias.dw 'diff --color-words'
+  git config --global alias.dc 'diff --word-diff=color --word-diff-regex=.'
+
+  git config --global alias.up '!git remote update -p; git merge --ff-only @{u}'
+  git config --global alias.amend-to '!f() { SHA=`git rev-parse "$1"`; git commit --fixup "$SHA" && GIT_SEQUENCE_EDITOR=true git rebase --interactive --autosquash "$SHA^"; }; f'
+  git config --global alias.root 'rev-parse --show-toplevel'
+  git config --global alias.exec '!exec'
+  git config --global alias.logline "log --graph --pretty=format:'%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%cr) %C(bold blue)<%an>%Creset' --abbrev-commit"
+  git config --global alias.parent '!git show-branch | sed "s/].*//" | grep "\*" | grep -v "$(git rev-parse --abbrev-ref HEAD)" | head -n1 | sed "s/^.*\[//"'
+  git config --global alias.br '!f() { cmd="git branch"; [ ! -z $1 ] && opt=$(echo $1 | sed -r -e "s,^\*?,*,g" -e "s,\*?$,*,g") && cmd="$cmd -r --list "$opt""; $cmd --format="%(HEAD) %(color:yellow)%(refname:short)%(color:reset) - %(contents:subject) %(color:green)(%(committerdate:relative)) [%(authorname)]" --sort=-committerdate; }; f'
+  git config --global alias.summ '!f() { local b=$1 a=$2; [ -z $a ] && git show --pretty="" --name-status $b && return 0; git merge-base --is-ancestor $b $a || { a=$1; b=$2; git merge-base --is-ancestor $b $a || return 1; }; git diff --stat $b $a; }; f'
+  # some more git aliases : https://github.com/laurentkempe/dotfiles/blob/master/git/.gitconfig.aliases
+  git read-tree --empty
+  git reset --hard
+}
+function gdbinit {
+  local GDB_INIT_FILE='/etc/gdb/gdbinit'
+  local arg=${1,,}
+  [[ ${arg:0:2} = "-d" ]] && { echo | sudo tee ${GDB_INIT_FILE}; }
+  [[ -e ${GDB_INIT_FILE} ]] || { echo "ALERT: ${GDB_INIT_FILE} does not exist" | STDERR; }
+  cat ${GDB_INIT_FILE} | grep "set target-wide-charset"  ||  { echo "set target-wide-charset UCS-2" | sudo tee -a ${GDB_INIT_FILE}; }
+  cat ${GDB_INIT_FILE} | grep "set print elements 10000" ||  { echo "set print elements 10000"      | sudo tee -a ${GDB_INIT_FILE}; }
+  cat ${GDB_INIT_FILE} | grep "set print repeats 0"      ||  { echo "set print repeats 0"           | sudo tee -a ${GDB_INIT_FILE}; }
+  cat ${GDB_INIT_FILE} | grep "set pagination off"       ||  { echo "set pagination off"            | sudo tee -a ${GDB_INIT_FILE}; }
+  cat ${GDB_INIT_FILE} | grep "set breakpoint pending"   ||  { echo "set breakpoint pending on"     | sudo tee -a ${GDB_INIT_FILE}; }
+  cat ${GDB_INIT_FILE} | grep "set history save"         ||  { echo "set history save on"           | sudo tee -a ${GDB_INIT_FILE}; }
+  cat ${GDB_INIT_FILE} | grep "set history size"         ||  { echo "set history size unlimited"    | sudo tee -a ${GDB_INIT_FILE}; }
+  cat ${GDB_INIT_FILE} | grep "set history expansion"    ||  { echo "set history expansion on"      | sudo tee -a ${GDB_INIT_FILE}; }
+  cat ${GDB_INIT_FILE} | grep "set print symbol"         ||  { echo "set print symbol-filename on"  | sudo tee -a ${GDB_INIT_FILE}; }
+  cat ${GDB_INIT_FILE} | grep "set print array"          ||  { echo "set print array on"            | sudo tee -a ${GDB_INIT_FILE}; }
+  cat ${GDB_INIT_FILE} | grep "set print array-indexes"  ||  { echo "set print array-indexes on"    | sudo tee -a ${GDB_INIT_FILE}; }
+  cat ${GDB_INIT_FILE} | grep "set print pretty"         ||  { echo "set print pretty on"           | sudo tee -a ${GDB_INIT_FILE}; }
+  cat ${GDB_INIT_FILE} | grep "set print union on"       ||  { echo "set print union on"            | sudo tee -a ${GDB_INIT_FILE}; }
+  cat ${GDB_INIT_FILE} | grep "set print asm-demangle"   ||  { echo "set print asm-demangle on"     | sudo tee -a ${GDB_INIT_FILE}; }
+  cat ${GDB_INIT_FILE} | grep "set print object on"      ||  { echo "set print object on"           | sudo tee -a ${GDB_INIT_FILE}; }
+  cat ${GDB_INIT_FILE} | grep "set print vtbl on"        ||  { echo "set print vtbl on"             | sudo tee -a ${GDB_INIT_FILE}; }
+
+  cat ${GDB_INIT_FILE} | grep "alias tbt"                ||  { echo "alias tbt=thread apply all bt" | sudo tee -a ${GDB_INIT_FILE}; }
+  cat ${GDB_INIT_FILE} | grep "alias rb"                 ||  { echo "alias rb=source /tmp/.brkpts"  | sudo tee -a ${GDB_INIT_FILE}; }
+
+  cat ${GDB_INIT_FILE} | grep "alias faalocalsoftype"    ||  { echo "alias faalocalsoftype = frame apply all info locals -q -t"  | sudo tee -a ${GDB_INIT_FILE}; }
+  cat ${GDB_INIT_FILE} | grep "alias bt_all"             ||  { echo "alias bt_all = backtrace -entry-values both -frame-arg all  -past-main -past-entry -full"  | sudo tee -a ${GDB_INIT_FILE}; }
+  cat ${GDB_INIT_FILE} | grep "alias bt_small"           ||  { echo "alias bt_small = backtrace -entry-values no -frame-arg none -past-main off -past-entry off"    | sudo tee -a ${GDB_INIT_FILE}; }
+
+  cat ${GDB_INIT_FILE} | grep "alias sb"                 ||  { echo "alias sb=save breakpoints /tmp/.brkpts"        | sudo tee -a ${GDB_INIT_FILE}; }
+  cat ${GDB_INIT_FILE} | grep "set history filename"     ||  { echo "set history filename ~/.gdb_history"           | sudo tee -a ${GDB_INIT_FILE}; }
+  cat ${GDB_INIT_FILE} | grep "set exec-wrapper env"     ||  { echo "set exec-wrapper env 'LD_PRELOAD=libjsig.so'"  | sudo tee -a ${GDB_INIT_FILE}; }
+
+  cat ${GDB_INIT_FILE} | grep "set print frame-arguments"     ||  { echo "set print frame-arguments all"            | sudo tee -a ${GDB_INIT_FILE}; }
+  cat ${GDB_INIT_FILE} | grep "set max-value-size unlimited"  ||  { echo "set max-value-size unlimited"             | sudo tee -a ${GDB_INIT_FILE}; }
+  cat ${GDB_INIT_FILE} | grep "set print symbol-filename on"  ||  { echo "set print symbol-filename on"             | sudo tee -a ${GDB_INIT_FILE}; }
+  cat ${GDB_INIT_FILE} | grep "set history remove-duplicates" ||  { echo "set history remove-duplicates unlimited"  | sudo tee -a ${GDB_INIT_FILE}; }
+  sudo pip install pygments
+  wget -O ~/.gdbinit https://github.com/cyrus-and/gdb-dashboard/raw/master/.gdbinit
+  chmod 755 ~/.gdbinit
+  gdb --batch -ex "help dashboard"
+  for u in $(id -gn neolane root 2>/dev/null ); do
+    sudo cp -f -p ~/.gdbinit $(sudo getent passwd $u | cut -d':' -f6)/.gdbinit
+  done
+}
 
 function setupDebianEnv {
   check_CAMP_AC_ROOT
   [[ ! -d $CAMP_AC_ROOT ]] && echo "Please ensure CAMP_AC_ROOT env variable points to existing directory" && return 1
-  if ! exec_command_exists /sbin/mount.cifs || ! exec_command_exists javac || ! exec_command_exists java || [[ -z $JAVA_HOME ]] || [ "X${1,,}" = "X-f" ]; then
-    setupSSHKeys
-    local yn
-    read -p "Do you want to continue setting up ${WSL_DISTRO_NAME} dev Environment, on what looks like a freshly installed machine ? ([y]/n)" yn
-    yn=${yn:0:1}
-    if [[ "X${yn,,}" = "Xn" ]]; then
-      echo "${FUNCNAME[0]} Aborted..." | STDERR
-      return $?
-    fi
-    aptS update
-    local iRc=0
-    for p in wget curl fio hdparm postgresql-client openssl vim unzip dos2unix bc procps iputils-ping netcat finger dnsutils whois moreutils bash-completion firefox-esr icu-devtools libreadline-dev libffi-dev libssl-dev zlib1g-dev libz-dev minizip libminizip-dev libxerces-c libxerces-c-dev libxalan-c-dev libxslt1-dev xsltproc net-tools tasksel man build-essential gdb manpages-dev devscripts libc6-dbg libc6 cmake openconnect network-manager iputils-tracepath mtr vim gnupg apt-transport-https apache2 lynx procps-ng ca-certificates jq software-properties-common libnss3-dev libgdbm-dev libncurses5-dev  libsqlite3-dev libbz2-dev espeak libespeak-ng1 alsa-utils unixodbc-common unixodbc-dev rlwrap cifs-utils openssh-client install libcurl4-openssl-dev libexpat1-dev libpcre3-dev libpcre2-dev libpcre2-posix2* libpcre3 libpcre++-dev libicu-dev uuid-dev libpq-dev libuuid-devel libxml2-utils libldap2-dev libsasl2-dev libc-ares-dev libc-ares2 openssh-server at btop
-    do aptS install $p; [[ -z $iRc ]] && iRc=$?; done
-    # Enable root ssh login
-    sudo sed -i -r  's,#\s*PermitRootLogin.*,PermitRootLogin yes,g'  /etc/ssh/sshd_config
-    [[ $iRc -eq 0 ]] || readEx "Some packages were not installed...Press any key to continue or Else setup will abort in next " 10 " seconds"
-    [[ $? -eq 0 ]] || return $iRc
-    installJava
-    installPython3
-    installPowershell
-    wps -Command 'Register-PSRepository -Default -Verbose; Set-PSRepository -Name "PSGallery" -InstallationPolicy Trusted'
-    wps -Command 'Install-Module PowerShellGet  -SkipPublisherCheck;  Install-Module -Name PSWindowsUpdate; Install-Module -Name JoinModule'
-    wcinstall snowflake
-    echo "${GREEN_COL}INFO:${RESET_COL} Install optional packages ... "
-    aptS install mssql-tools
-    aptS update
-    aptS upgrade
-    aptS install gpg
-    wget -qO- https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > packages.microsoft.gpg
-    sudo install -D -o root -g root -m 644 packages.microsoft.gpg /etc/apt/keyrings/packages.microsoft.gpg
-    sudo sh -c 'echo "deb [arch=amd64,arm64,armhf signed-by=/etc/apt/keyrings/packages.microsoft.gpg] https://packages.microsoft.com/repos/code stable main" > /etc/apt/sources.list.d/vscode.list'
-    rm -f packages.microsoft.gpg
-    aptS install apt-transport-https
-    aptS update
-    aptS install code
-    sudo sed -i -r "s,^.*PermitUserEnvironment.*,PermitUserEnvironment yes," /etc/ssh/sshd_config
-    download https://raw.githubusercontent.com/git/git/master/contrib/completion/git-completion.bash    ~/.git-completion.bash
-    download https://raw.github.com/git/git/master/contrib/completion/git-prompt.sh                     ~/.git-prompt.bash
-    local GDB_INIT_FILE='/etc/gdb/gdbinit'
-    local permissions="$(ls -l ${GDB_INIT_FILE}  | awk '{print $3":"$4}')"
-    sudo chown $(id -u):$(id -g) ${GDB_INIT_FILE}
-    cat ${GDB_INIT_FILE} | grep "set target-wide-charset"  ||  { echo "set target-wide-charset UCS-2" | tee -a ${GDB_INIT_FILE}; }
-    cat ${GDB_INIT_FILE} | grep "set print elements 10000" ||  { echo "set print elements 10000"      | tee -a ${GDB_INIT_FILE}; }
-    cat ${GDB_INIT_FILE} | grep "set breakpoint pending"   ||  { echo "set breakpoint pending on"     | tee -a ${GDB_INIT_FILE}; }
-    cat ${GDB_INIT_FILE} | grep "set history save"         ||  { echo "set history save on"           | tee -a ${GDB_INIT_FILE}; }
-    cat ${GDB_INIT_FILE} | grep "set history size"         ||  { echo "set history size unlimited"    | tee -a ${GDB_INIT_FILE}; }
-    cat ${GDB_INIT_FILE} | grep "set history expansion"    ||  { echo "set history expansion on"      | tee -a ${GDB_INIT_FILE}; }
-    cat ${GDB_INIT_FILE} | grep "set exec-wrapper env"     ||  { echo "set exec-wrapper env 'LD_PRELOAD=libjsig.so'"  | tee -a ${GDB_INIT_FILE}; }
-    cat ${GDB_INIT_FILE} | grep "set history filename"          ||  { echo "set history filename ~/.gdb_history"      | tee -a ${GDB_INIT_FILE}; }
-    cat ${GDB_INIT_FILE} | grep "set history remove-duplicates" ||  { echo "set history remove-duplicates unlimited"  | tee -a ${GDB_INIT_FILE}; }
-    cat ${GDB_INIT_FILE} | grep "alias sb"                      ||  { echo "alias sb=save breakpoints /tmp/.brkpts"   | tee -a ${GDB_INIT_FILE}; }
-    cat ${GDB_INIT_FILE} | grep "alias rb"                      ||  { echo "alias rb=source /tmp/.brkpts"             | tee -a ${GDB_INIT_FILE}; }
-    sudo chown "${permissions}" ${GDB_INIT_FILE}
-
-    if ! exec_command_exists git; then
-      aptS install git
-    fi
-    if [ "X${1,,}" = "X-f" ]; then
-        aptS remove git
-    fi
-    if exec_command_exists git; then
-      local gitv
-      read -a gitv <<< "$(git --version | cut -d ',' -f1 | sed -r 's/^(.*?)(\s)([0-9\.]+)(\s*).*/\3/' | xargs -d '.')"
-      if [[ ${gitv[0]} -lt 2 ]] || [[ ${gitv[0]} -eq 2 &&  ${gitv[1]} -lt 30 ]]; then
-        aptS remove git
-      fi
-    fi
-    if ! exec_command_exists git; then
-      local GIT_HUB="https://github.com"
-      pushd /tmp
-      download ${GIT_HUB}$(curl -s ${GIT_HUB}/git/git/tags |  grep "/git/git/archive" | grep ".tar.gz" | getXMLAttrVal a href) /tmp/git_latest.tar.gz
-      local gitSrcRoot=$(tar -zxvf /tmp/git_latest.tar.gz  | tail -n 1 | cut -d '/' -f1)
-      pushd ${gitSrcRoot}
-      # aptS install asciidoc
-      make prefix=/usr all # doc info
-      sudo make prefix=/usr install # install-doc install-html install-info
-      popd
-      popd
-    fi
-    pushd $CAMP_AC_ROOT
-    git init
-    git config --global init.defaultBranch ${MASTER_BRANCH}
-    git config --global user.name "$(getUserInfo -fullname)"
-    git config --global user.email "$(whoami)@${ADOBE_DOMAIN}"
-    git config --global core.autocrlf false
-    git config --global pull.rebase true
-    git config --global fetch.prune true
-    ## Diff
-    git config --global diff.colorMoved zebra
-    # Diff staged files highlighting individual character changes and space changes (see https://stackoverflow.com/questions/3231759/how-can-i-visualize-per-character-differences-in-a-unified-diff-file/25634420#25634420)
-    git config --global alias.ds "diff --cached --color-words='[^[:space:]]|([[:alnum:]]|UTF_8_GUARD)+'"
-    # Diff HEAD or specified commit with previous one highlighting individual character changes and space changes
-    git config --global alias.diffp '!f() { git diff "${1-HEAD}"^.."${1-HEAD}" --color-words="[^[:space:]]|([[:alnum:]]|UTF_8_GUARD)+"; }; f'
-    git config --global alias.dw 'diff --color-words'
-    git config --global alias.dc 'diff --word-diff=color --word-diff-regex=.'
-
-    git config --global alias.up '!git remote update -p; git merge --ff-only @{u}'
-    git config --global alias.amend-to '!f() { SHA=`git rev-parse "$1"`; git commit --fixup "$SHA" && GIT_SEQUENCE_EDITOR=true git rebase --interactive --autosquash "$SHA^"; }; f'
-    git config --global alias.root 'rev-parse --show-toplevel'
-    git config --global alias.exec '!exec'
-    git config --global alias.logline "log --graph --pretty=format:'%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%cr) %C(bold blue)<%an>%Creset' --abbrev-commit"
-    git config --global alias.parent '!git show-branch | sed "s/].*//" | grep "\*" | grep -v "$(git rev-parse --abbrev-ref HEAD)" | head -n1 | sed "s/^.*\[//"'
-    git config --global alias.br '!f() { cmd="git branch"; [[ -n $1 ]] && opt=$(echo $1 | sed -r -e "s,^\*?,*,g" -e "s,\*?$,*,g") && cmd="$cmd -r --list "$opt""; $cmd --format="%(HEAD) %(color:yellow)%(refname:short)%(color:reset) - %(contents:subject) %(color:green)(%(committerdate:relative)) [%(authorname)]" --sort=-committerdate; }; f'
-    git config --global alias.summ '!f() { local b=$1 a=$2; [[ -z $a ]] && git show --pretty="" --name-status $b && return 0; git merge-base --is-ancestor $b $a || { a=$1; b=$2; git merge-base --is-ancestor $b $a || return 1; }; git diff --stat $b $a; }; f'
-    # some more git aliases : https://github.com/laurentkempe/dotfiles/blob/master/git/.gitconfig.aliases
-    git read-tree --empty
-    git reset --hard
-    popd
-    wcinstall gh
-    if [[ ! -L ~/.bashrc ]]; then
-      if isHostAlive git.${ADOBE_CORP_DOMAIN}; then
-        pushd $CAMP_AC_ROOT/..
-        git clone git@git.${ADOBE_CORP_DOMAIN}:hparmar/acc-dev.git
-        pushd $CAMP_AC_ROOT/../acc-dev
-        git pull
-        popd
-        popd
-      fi
-      if [ -f "$CAMP_AC_ROOT/../acc-dev/acc-dev-setup/.bashrc" ]; then
-        if [ -f ~/.bashrc ]; then
-          mv -f ~/.bashrc ~/.bashrc.$(date '+%d%b%Y_%H_%M_%S_%s')
-        fi
-        [[ -e ~/.bashrc ]] && rm -f ~/.bashrc
-        ln -s $CAMP_AC_ROOT/../acc-dev/acc-dev-setup/.bashrc ~/.bashrc
-      fi
-    fi
-    # https://docs.microsoft.com/en-us/windows/wsl/wsl-config
-    # https://devblogs.microsoft.com/commandline/automatically-configuring-wsl/
-    # https://www.systutorials.com/docs/linux/man/8-ip-netns/#:~:text=ip%20netns%20add%20NAME%20-%20create%20a%20new,PID%20-%20create%20a%20new%20named%20network%20namespace
-    # https://serverfault.com/questions/791833/ways-to-circumvent-cisco-anyconnect-vpn-routing-table
-    local l_hostname=$(hostname)
-    local l_hostname_fqdn=$(hostname --fqdn)
-    if [[ ${l_hostname_fqdn} = ${l_hostname} ]]; then
-      l_hostname=${l_hostname_fqdn%%.*}
-      l_hostname_fqdn=${l_hostname}.${ADOBE_CORP_DOMAIN}
-    fi
-    if [[ ! -z ${WSL_DISTRO_NAME} ]] && [[ ! $l_hostname =~ ^.*-${WSL_DISTRO_NAME}$ ]]; then
-      local windowsOSDrive=$(for d in {a..z}; do [[ -d /mnt/${d}/Windows/System32 ]] && echo $d && break; done)
-      local wslconfig=/mnt/${windowsOSDrive}/Users/$(whoami)/.wslconfig
-      local pws="/mnt/${windowsOSDrive}/Windows/System32/WindowsPowerShell/v1.0/powershell.exe"
-      echo "Using Powershell $(${pws} -Command ' Write-Host $PSVersionTable.PSVersion')"
-      if [[ ! -f ${wslconfig} ]]; then
-      echo "
-[wsl2]
-  # Limits VM memory to use no more than 4 GB, this can be set as whole numbers using GB or MB\
-  memory=4GB
-
-  # Sets the VM to use two virtual processors
-  processors=4
-
-  # Turn off default connection to bind WSL 2 localhost to Windows localhost
-  localhostforwarding=false
-
-  # Turns on output console showing contents of dmesg when opening a WSL 2 distro for debugging
-  # debugConsole=true
-" > ${wslconfig}
-      [[ -e $(getUsersFolder Downloads) ]] || {
-        local getDlFolder_Cmd="(New-Object -ComObject Shell.Application).NameSpace(\"shell:Downloads\").Self.Path"
-        local f="$(ustyle $(trim $(${pws} -Command ${getDlFolder_Cmd})))";
-        [[ -d ${f} ]] && ln -s ${f} $(getUsersFolder Downloads);
-      }
-      [[ -e $(getUsersFolder .ssh) ]] || {
-        local getHostHomeFolder_Cmd='$env:USERPROFILE';
-        local f="$(ustyle $(trim $(${pws} -Command ${getHostHomeFolder_Cmd})))/.ssh";
-        [[ -d ${f} ]] && ln -s ${f} $(getUsersFolder .ssh);
-      }
-      local wslCPUCores=4 wslMemGB=4
-      if [[ -f ${pws} ]]; then
-        wslMemGB=$(${pws} -Command '((Get-CimInstance Win32_PhysicalMemory).Capacity | Measure-Object -Sum).Sum / (1024*1024*1024)')
-        wslMemGB=$(trim "${wslMemGB}")
-        wslMemGB=$[${wslMemGB}/2]
-
-        wslCPUCores=$(${pws} -Command '((Get-WmiObject Win32_Processor).NumberOfLogicalProcessors | Measure-Object -Sum).Sum')
-        wslCPUCores=$(trim "${wslCPUCores}")
-        wslCPUCores=$[${wslCPUCores}/2]
-      fi
-      sed -i -r "s,^\s*memory=.*,memory=${wslMem}GB,g" ${wslconfig}
-      sed -i -r "s,^\s*processors=.*,processors=${wslCPUCores},g" ${wslconfig}
-      sed -i -r "s,^\s*localhostforwarding=.*,localhostforwarding=false" ${wslconfig}
-      fi
-      # Turns on output console showing contents of dmesg when opening a WSL 2 distro for debugging
-      if [[ -f /etc/wsl.conf ]]; then
-        cat /etc/wsl.conf | grep -v -E 'hostname\s+=' | grep -v -E 'generateHosts\s+=' | sed -r "s,\[network\],[network]\nhostname = ${l_hostname}-${WSL_DISTRO_NAME}\ngenerateHosts = false," > /tmp/wsl.conf
-      else
-        local osVersion=$(cat /etc/os-release | grep ^VERSION_ID= | sed 's,^VERSION_ID=,,' | sed 's,\",,g')
-        ${osVersion//[^[:alnum:]]/-}
-        echo -e "[network]\nhostname = ${l_hostname}-${WSL_DISTRO_NAME}-${osVersion//[^[:alnum:]]/-}\ngenerateHosts = false" | tee /tmp/wsl.conf
-      fi
-      local mvCmd="$(which mv) -f"
-      sudo ${mvCmd} /tmp/wsl.conf /etc/wsl.conf
-      echo "${RED_COL}WSL: Hostname changed. ${YELLOW_COL}Reboot distro ${WSL_DISTRO_NAME}${RESET_COL}"
-      # local ip=$(getIP)
-      # 127.0.1.1 ensures that hostname --fqdn returns full hostname on wsl machines.
-      # 127.0.0.1 is localhost..we do not touch that.
-      add2HostsFile ${l_hostname_fqdn} 127.0.0.1 ${FUNCNAME[0]}
-      echo ${l_hostname} | sudo tee /etc/hostname
-    fi
-    eval "$(ssh-agent -s)"
-    createShortCut ${WSL_DISTRO_NAME}
-    registerRootCert
-    sudo rm -rf /tmp/!(.|..|bkp)
-    sudo rm -rf /tmp/!(.|..|bkp)
-    sudo setcap cap_net_raw+p $(which ping)
-    sudo chmod u+s $(which ping)
-    sudo setcap cap_net_raw+p $(which gdb)
-    sudo setcap cap_sys_ptrace=eip $(which gdb)
-    sudo chmod u+s $(which gdb)
-    cacheEnvVar EXPERT_MODE yes
-    cacheEnvVar -c EXPERT_MODE
-    cacheEnvVar VPN_PIN 1234
-    cacheEnvVar -c VPN_PIN
-    cacheEnvVar CUSTOM_TITLEBAR $(whoami),
-    cacheEnvVar -c CUSTOM_TITLEBAR
-    cacheEnvVar TIME_PROFILE_SCRIPT 1
-    cacheEnvVar -c TIME_PROFILE_SCRIPT
-    cacheEnvVar ATTACH_TO_TERMINAL 0
-    cacheEnvVar VS_IDENTIFIER 2019
-    cacheEnvVar ENABLE_GIT_PS1 1
-    cacheEnvVar -c ENABLE_GIT_PS1
-    cacheEnvVar GUI_DIFF_TOOL_NAME Examdiff.exe
-    cacheEnvVar -c GUI_DIFF_TOOL_NAME
-    cacheEnvVar BOOT_OPTIONS 255
-    cacheEnvVar -c BOOT_OPTIONS
-  fi
-  if isWSL; then
+    if isWSL; then
     [[ -f /usr/local/bin/wsl-netns.sh ]] || [[ -h /usr/local/bin/wsl-netns.sh ]] || sudo ln -s $CAMP_AC_ROOT/../acc-dev/acc-dev-setup/wsl-netns.sh /usr/local/bin/wsl-netns.sh
     # Mount virtual disk on WSL for building campaign.
     local ACC_BUILD_DIR=${CAMP_AC_ROOT}/nl/build
@@ -5833,7 +6055,7 @@ function setupDebianEnv {
         mount -t ext4 | sort -r -k 1
     fi
   fi
-  # Mount indshare
+  # Mount indstore
   local l_team_loc=/mnt/${TEAM_SHARE_SERVER%%.*}/$(echo ${TEAM_SHARE_LOCATION} | awk -F '\' '{print $(NF-1);}')/
   local l_user_loc=/mnt/${TEAM_SHARE_SERVER%%.*}/$(echo ${USER_SHARE_LOCATION} | awk -F '\' '{print $(NF-1);}')/
   local l_team_cache=/mnt/${TEAM_SHARE_SERVER%%.*}/$(echo ${TEAM_SHARE_CACHE} | awk -F '\' '{print $(NF-1);}')/
@@ -5850,7 +6072,171 @@ function setupDebianEnv {
       sudo mount -t cifs -o username=$(whoami) -o password=${LDAP_PASS} -o uid=$(id -u) -o gid=$(id -g) ${TEAM_SHARE_CACHE//\\//} ${l_team_cache}
     fi
     mount -t cifs | grep ${TEAM_SHARE_SERVER%%.*} > /dev/null 2>&1
-    [[ $? -eq 0 ]] && TEAM_SHARE_LOCATION=${l_team_loc} && USER_SHARE_LOCATION=${l_user_loc} && TEAM_SHARE_CACHE=${l_team_cache}
+    [[ $? -eq 0 ]] && export TEAM_SHARE_LOCATION=${l_team_loc} && export USER_SHARE_LOCATION=${l_user_loc} && export TEAM_SHARE_CACHE=${l_team_cache}
+  fi
+  if ! exec_command_exists /sbin/mount.cifs || ! exec_command_exists javac || ! exec_command_exists java || [[ -z $JAVA_HOME ]] || [ "X${1,,}" = "X-f" ]; then
+    setupSSHKeys
+    local yn
+    read -p "Do you want to continue setting up ${WSL_DISTRO_NAME} dev Environment, on what looks like a freshly installed machine ? ([y]/n)" yn
+    yn=${yn:0:1}
+    if [[ "X${yn,,}" = "Xn" ]]; then
+      echo "${FUNCNAME[0]} Aborted..." | STDERR
+      return $?
+    fi
+    aptS update
+    local iRc=0
+    for p in wget curl fio hdparm postgresql-client openssl unzip dos2unix bc procps iputils-ping netcat finger dnsutils whois moreutils bash-completion firefox-esr icu-devtools libreadline-dev libffi-dev libssl-dev zlib1g-dev libz-dev minizip libminizip-dev libxerces-c libxerces-c-dev libxalan-c-dev libxslt1-dev xsltproc net-tools tasksel man build-essential gdb manpages-dev devscripts libc6-dbg libc6 cmake openconnect network-manager iputils-tracepath mtr vim-common vim gnupg apt-transport-https apache2 lynx procps-ng ca-certificates jq software-properties-common libnss3-dev libgdbm-dev libncurses5-dev  libsqlite3-dev libbz2-dev espeak libespeak-ng1 alsa-utils unixodbc-common unixodbc-dev rlwrap cifs-utils openssh-client install libcurl4-openssl-dev libexpat1-dev libpcre3-dev libpcre2-dev libpcre2-posix2* libpcre3 libpcre++-dev libicu-dev uuid-dev libpq-dev libuuid-devel libxml2-utils libldap2-dev libsasl2-dev libc-ares-dev libc-ares2 openssh-server at btop protobuf-compiler linux-perf
+    do aptS install $p; [[ -z $iRc ]] && iRc=$?; done
+    # Enable root ssh login
+    sudo sed -i -r  's,#\s*PermitRootLogin.*,PermitRootLogin yes,g'  /etc/ssh/sshd_config
+    [[ $iRc -eq 0 ]] || readEx "Some packages were not installed...Press any key to continue or Else setup will abort in next " 10 " seconds"
+    [[ $? -eq 0 ]] || return $iRc
+    installJava
+    installPython3
+    installPowershell
+    local install_Join_Object_Cmd="-Command Install-Module -Name Join-Object -RequiredVersion 2.0.3 -AllowClobber"
+    wps -Command "Start-Process $PWSHELL  -ArgumentList \"${install_Join_Object_Cmd}\" -Wait"
+    wps -Command 'Register-PSRepository -Default -Verbose; Set-PSRepository -Name "PSGallery" -InstallationPolicy Trusted'
+    wps -Command 'Install-Module PowerShellGet  -SkipPublisherCheck;  Install-Module -Name PSWindowsUpdate; Install-Module -Name Join-Object -AllowClobber'
+    wcinstall artifactory
+    wcinstall snowflake
+    echo "${GREEN_COL}INFO:${RESET_COL} Install optional packages ... "
+    aptS install mssql-tools
+    aptS update
+    aptS upgrade
+    aptS install gpg
+    wget -qO- https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > packages.microsoft.gpg
+    sudo install -D -o root -g root -m 644 packages.microsoft.gpg /etc/apt/keyrings/packages.microsoft.gpg
+    sudo sh -c 'echo "deb [arch=amd64,arm64,armhf signed-by=/etc/apt/keyrings/packages.microsoft.gpg] https://packages.microsoft.com/repos/code stable main" > /etc/apt/sources.list.d/vscode.list'
+    rm -f packages.microsoft.gpg
+    aptS install apt-transport-https
+    aptS update
+    aptS install code
+    sudo sed -i -r "s,^.*PermitUserEnvironment.*,PermitUserEnvironment yes," /etc/ssh/sshd_config
+    download https://raw.githubusercontent.com/git/git/master/contrib/completion/git-completion.bash    ~/.git-completion.bash
+    download https://raw.github.com/git/git/master/contrib/completion/git-prompt.sh                     ~/.git-prompt.bash
+
+    gdbinit
+    pushd $CAMP_AC_ROOT
+    wcinstall git
+    gitinit
+    popd
+    wcinstall gh
+    if [[ ! -L ~/.bashrc ]]; then
+      if isHostAlive git.${ADOBE_CORP_DOMAIN}; then
+        pushd $CAMP_AC_ROOT/..
+        git clone git@git.${ADOBE_CORP_DOMAIN}:hparmar/acc-dev.git
+        pushd $CAMP_AC_ROOT/../acc-dev
+        git pull
+        popd
+        popd
+      fi
+      if [ -f "$CAMP_AC_ROOT/../acc-dev/acc-dev-setup/.bashrc" ]; then
+        if [ -f ~/.bashrc ]; then
+          mv -f ~/.bashrc ~/.bashrc.$(date '+%d%b%Y_%H_%M_%S_%s')
+        fi
+        [[ -e ~/.bashrc ]] && rm -f ~/.bashrc
+        ln -s $CAMP_AC_ROOT/../acc-dev/acc-dev-setup/.bashrc ~/.bashrc
+      fi
+    fi
+    # https://docs.microsoft.com/en-us/windows/wsl/wsl-config
+    # https://devblogs.microsoft.com/commandline/automatically-configuring-wsl/
+    # https://www.systutorials.com/docs/linux/man/8-ip-netns/#:~:text=ip%20netns%20add%20NAME%20-%20create%20a%20new,PID%20-%20create%20a%20new%20named%20network%20namespace
+    # https://serverfault.com/questions/791833/ways-to-circumvent-cisco-anyconnect-vpn-routing-table
+    local l_hostname=$(hostname)
+    local l_hostname_fqdn=$(hostname --fqdn)
+    if [[ ${l_hostname_fqdn} = ${l_hostname} ]]; then
+      l_hostname=${l_hostname_fqdn%%.*}
+      l_hostname_fqdn=${l_hostname}.${ADOBE_CORP_DOMAIN}
+    fi
+    if [[ ! -z ${WSL_DISTRO_NAME} ]] && [[ ! $l_hostname =~ ^.*-${WSL_DISTRO_NAME}$ ]]; then
+      local windowsOSDrive=$(for d in {a..z}; do [[ -d /mnt/${d}/Windows/System32 ]] && echo $d && break; done)
+      local wslconfig=/mnt/${windowsOSDrive}/Users/$(whoami)/.wslconfig
+      local pws="/mnt/${windowsOSDrive}/Windows/System32/WindowsPowerShell/v1.0/powershell.exe"
+      echo "Using Powershell $(${pws} -Command ' Write-Host $PSVersionTable.PSVersion')"
+      if [[ ! -f ${wslconfig} ]]; then
+      echo "
+[wsl2]
+  # Limits VM memory to use no more than 4 GB, this can be set as whole numbers using GB or MB
+  memory=4GB
+
+  # Sets the VM to use two virtual processors
+  processors=4
+
+  # Turn off default connection to bind WSL 2 localhost to Windows localhost
+  localhostforwarding=false
+
+  # Turns on output console showing contents of dmesg when opening a WSL 2 distro for debugging
+  # debugConsole=true
+" > ${wslconfig}
+      [[ -e $(getUsersFolder Downloads) ]] || {
+        local getDlFolder_Cmd="(New-Object -ComObject Shell.Application).NameSpace(\"shell:Downloads\").Self.Path"
+        local f="$(ustyle $(trim $(${pws} -Command ${getDlFolder_Cmd})))";
+        [[ -d ${f} ]] && ln -s ${f} $(getUsersFolder Downloads);
+      }
+      [[ -e $(getUsersFolder .ssh) ]] || {
+        local getHostHomeFolder_Cmd='$env:USERPROFILE';
+        local f="$(ustyle $(trim $(${pws} -Command ${getHostHomeFolder_Cmd})))/.ssh";
+        [[ -d ${f} ]] && ln -s ${f} $(getUsersFolder .ssh);
+      }
+      local wslCPUCores=4 wslMemGB=4
+      if [[ -f ${pws} ]]; then
+        wslMemGB=$(${pws} -Command '((Get-CimInstance Win32_PhysicalMemory).Capacity | Measure-Object -Sum).Sum / (1024*1024*1024)')
+        wslMemGB=$(trim "${wslMemGB}")
+        wslMemGB=$[${wslMemGB}/2]
+
+        wslCPUCores=$(${pws} -Command '((Get-WmiObject Win32_Processor).NumberOfLogicalProcessors | Measure-Object -Sum).Sum')
+        wslCPUCores=$(trim "${wslCPUCores}")
+        wslCPUCores=$[${wslCPUCores}/2]
+      fi
+      sed -i -r "s,^\s*memory=.*,memory=${wslMem}GB,g" ${wslconfig}
+      sed -i -r "s,^\s*processors=.*,processors=${wslCPUCores},g" ${wslconfig}
+      sed -i -r "s,^\s*localhostforwarding=.*,localhostforwarding=false,g" ${wslconfig}
+      fi
+      # Turns on output console showing contents of dmesg when opening a WSL 2 distro for debugging
+      if [[ -f /etc/wsl.conf ]]; then
+        cat /etc/wsl.conf | grep -v -E 'hostname\s+=' | grep -v -E 'generateHosts\s+=' | sed -r "s,\[network\],[network]\nhostname = ${l_hostname}-${WSL_DISTRO_NAME}\ngenerateHosts = false," > /tmp/wsl.conf
+      else
+        local osVersion=$(cat /etc/os-release | grep ^VERSION_ID= | sed 's,^VERSION_ID=,,' | sed 's,\",,g')
+        l_hostname=${l_hostname}-${WSL_DISTRO_NAME}-${osVersion//[^[:alnum:]]/-}
+        echo -e "[boot]\nsystemd = true\n\n[automount]\nenabled = true\noptions = \"metadata,uid=$(id -u),gid=$(id -g),umask=022,fmask=11,case=off\"\n\n[network]\nhostname = ${l_hostname}\ngenerateHosts = false\ngenerateResolvConf = true\n\n[user]\ndefault=$(id -un)\n" | tee /tmp/wsl.conf
+        l_hostname_fqdn=${l_hostname}.${ADOBE_CORP_DOMAIN}
+      fi
+      local mvCmd="$(type -P mv) -f"
+      sudo ${mvCmd} /tmp/wsl.conf /etc/wsl.conf
+      echo "${RED_COL}WSL: Hostname changed. ${YELLOW_COL}Reboot distro ${WSL_DISTRO_NAME}${RESET_COL}"
+      # local ip=$(getIP)
+      # 127.0.1.1 ensures that hostname --fqdn returns full hostname on wsl machines.
+      # 127.0.0.1 is localhost..we do not touch that.
+      add2HostsFile ${l_hostname_fqdn} 127.0.0.1 ${FUNCNAME[0]}
+      echo ${l_hostname} | sudo tee /etc/hostname
+    fi
+    eval "$(ssh-agent -s)"
+    createShortCut ${WSL_DISTRO_NAME}
+    registerRootCert
+    sudo rm -rf /tmp/!(.|..|bkp)
+    sudo rm -rf /tmp/!(.|..|bkp)
+    sudo setcap cap_net_raw+p $(realpath -m $(type -P ping))
+    sudo chmod u+s $(realpath -m $(type -P ping))
+    sudo setcap cap_net_raw+p $(realpath -m $(type -P gdb))
+    sudo setcap cap_sys_ptrace=eip $(realpath -m $(type -P gdb))
+    sudo chmod u+s $(realpath -m $(type -P gdb))
+    cacheEnvVar EXPERT_MODE yes
+    cacheEnvVar -c EXPERT_MODE
+    cacheEnvVar VPN_PIN 1234
+    cacheEnvVar -c VPN_PIN
+    cacheEnvVar CUSTOM_TITLEBAR $(whoami),
+    cacheEnvVar -c CUSTOM_TITLEBAR
+    cacheEnvVar TIME_PROFILE_SCRIPT 1
+    cacheEnvVar -c TIME_PROFILE_SCRIPT
+    cacheEnvVar ATTACH_TO_TERMINAL 0
+    cacheEnvVar VS_IDENTIFIER 2019
+    cacheEnvVar ENABLE_GIT_PS1 1
+    cacheEnvVar -c ENABLE_GIT_PS1
+    cacheEnvVar GUI_DIFF_TOOL_NAME Examdiff.exe
+    cacheEnvVar -c GUI_DIFF_TOOL_NAME
+    cacheEnvVar BOOT_OPTIONS 255
+    cacheEnvVar -c BOOT_OPTIONS
   fi
 }
 function loadProcessorCount {
@@ -5871,13 +6257,14 @@ function makeCamp {
   local cleanBuild
   local freeProcessors
   local doQuiteBuild
+  local restoreConfig
   loadProcessorCount
-  [[ $# -eq 0 ]] && echo -e "${YELLOW_COL}Usage:${RESET_COL}  ${FUNCNAME[0]} [options] [branch]\n\t[-[-]c,C (clean buld)]\n\t[-[-]f,F (force git pull and build)]\n\t[-[-]n,N (run only nlconf ..Do not build)]\n\t[-[-][q,Q (quite build)]\n\t[-[-]x,X (count of 'x' is processors(out of ${EFFECTIVE_PROCESSOR_COUNT})spared/unused while building)]\n\t[-[-]h,H (help)]" && return 1
+  [[ $# -eq 0 ]] && echo -e "${YELLOW_COL}Usage:${RESET_COL}  ${FUNCNAME[0]} [options] [branch]\n\t[-[-]c,C (clean buld)]\n\t[-[-]f,F (force git pull and build)]\n\t[-[-]n,N (run only nlconf ..Do not build)]\n\t[-[-][q,Q (quite build)]\n\t[-[-]x,X (count of 'x' is processors(out of ${EFFECTIVE_PROCESSOR_COUNT})spared/unused while building)]\n\t[-[-]r,R (restore acc config)]\n\t[-[-]h,H (help)]" && return 1
   local doBuild=1
   while [ ! -z "$1" ]
   do
     if   [[ $1 =~ ^[-]+[hH].* ]]; then
-      echo -e "${YELLOW_COL}Usage:${RESET_COL}  ${FUNCNAME[0]} [options] [branch]\n\t[-[-]c,C (clean buld)]\n\t[-[-]f,F (force git pull and build)]\n\t[-[-]n,N (run only nlconf ..Do not build)]\n\t[-[-][q,Q (quite build)]\n\t[-[-]x,X (count of 'x' is processors(out of ${EFFECTIVE_PROCESSOR_COUNT}) spared/unused while building)]\n\t[-[-]h,H (help)]"
+      echo -e "${YELLOW_COL}Usage:${RESET_COL}  ${FUNCNAME[0]} [options] [branch]\n\t[-[-]c,C (clean buld)]\n\t[-[-]f,F (force git pull and build)]\n\t[-[-]n,N (run only nlconf ..Do not build)]\n\t[-[-][q,Q (quite build)]\n\t[-[-]x,X (count of 'x' is processors(out of ${EFFECTIVE_PROCESSOR_COUNT}) spared/unused while building)]\n\t[-[-]r,R (restore acc config)]\n\t[-[-]h,H (help)]"
       return 0
     elif [[ $1 =~ ^[-]+[fF].* ]]; then
       forceBuild=$1
@@ -5891,6 +6278,9 @@ function makeCamp {
     elif [[ $1 =~ ^[-]+[qQ].* ]]; then
       doQuiteBuild=1
       doBuild=1
+    elif [[ $1 =~ ^[-]+[rR].* ]]; then
+      restoreConfig=1
+      [[ -n ${CONFIG_BK_DIR} ]] && [[ $(fCount ${CONFIG_BK_DIR}) -eq 0 ]] && echo "${YELLOW_COL}Warn:${RESET_COL} No files can be restored from ${YELLOW_COL}${CONFIG_BK_DIR}{RESET_COL}"
     elif [[ $1 =~ ^[-]+[xX].* ]]; then
       freeProcessors=$(nchars x ${1,,})
       doBuild=1
@@ -5898,7 +6288,7 @@ function makeCamp {
       branchName=$1
       doBuild=1
     else
-      echo -e "${YELLOW_COL}Usage:${RESET_COL}  ${FUNCNAME[0]} [options] [branch]\n\t[-[-]c,C (clean buld)]\n\t[-[-]f,F (force git pull and build)]\n\t[-[-]n,N (run only nlconf ..Do not build)]\n\t[-[-][q,Q (quite build)]\n\t[-[-]x,X (count of 'x' is processors(out of ${EFFECTIVE_PROCESSOR_COUNT}) spared/unused while building)]\n\t[-[-]h,H (help)]"
+      echo -e "${YELLOW_COL}Usage:${RESET_COL}  ${FUNCNAME[0]} [options] [branch]\n\t[-[-]c,C (clean buld)]\n\t[-[-]f,F (force git pull and build)]\n\t[-[-]n,N (run only nlconf ..Do not build)]\n\t[-[-][q,Q (quite build)]\n\t[-[-]x,X (count of 'x' is processors(out of ${EFFECTIVE_PROCESSOR_COUNT}) spared/unused while building)]\n\t[-[-]r,R (restore acc config)]\n\t[-[-]h,H (help)]"
       return 1
     fi
     shift
@@ -5910,6 +6300,7 @@ function makeCamp {
       echo "${GREEN_COL}INFO:${RESET_COL} Back-up campaign config file(s) to ${backUpDir} folder."
       mkdir -p ${backUpDir}
       cp -p -v -i $(getCampRoot)/nl/build/ncs/conf/*.xml ${backUpDir}/
+      [[ $? -eq 0 ]] && [[ -n ${restoreConfig} ]] && cacheEnvVar -f CONFIG_BK_DIR "${backUpDir}"
     fi
     echo "${GREEN_COL}INFO:${RESET_COL} Deleting build folder contents"
     rm -rf $(getCampRoot)/nl/build/*
@@ -5957,6 +6348,10 @@ function makeCamp {
     if [ -z $branchName ]; then
       branchName=$(currentBranch)
     fi
+    popd
+    pushd $CAMP_AC_ROOT
+    gitinit
+    popd
   fi
   if [ ! -z $branchName ]; then
     cd $CAMP_AC_ROOT/nl
@@ -6096,31 +6491,39 @@ function makeCamp {
             echo "${GREEN_COL}INFO:${RESET_COL} Stashing ${stashMsg}"
             git stash --keep-index -m "${stashMsg}"
           fi
+          local versionFlag yn
+          { [[ ${RELEASE_NAME%%.*} = 7 ]] || [[ ${VERSION_MAJOR} = 7 ]] ;} && versionFlag='-v7' && readEx "${YELLOW_COL}Building for v7${RESET_COL} ... Continue in " 5 " seconds" && read -p "Do you want to continue building for v7? ([y]/n)" yn &&  [[ "X${yn,,}" = "Xn" ]] && unset versionFlag && readEx "${YELLOW_COL}You choose to build for v8${RESET_COL}... Continue in " 5 " seconds"; echo
           if isCygwin; then
             if [ "X${BUILD_BIT_WIDE}" = "X32" ]; then
               export CMKFLAGS="-A Win32"
               export GENERATOR=$(echo $GENERATOR | sed -r 's/^(.*) Win64$/\1/')
             fi
-            nlconf -translate all
+            nlconf ${versionFlag} -translate all
           else
-            nlconf -debug -translate all
+            nlconf ${versionFlag} -debug -translate all
           fi
         else
+          local versionFlag yn
+          { [[ ${RELEASE_NAME%%.*} = 7 ]] || [[ ${VERSION_MAJOR} = 7 ]] ;} && versionFlag='-v7' && readEx "${YELLOW_COL}Building for v7${RESET_COL} ... Continue in " 5 " seconds" && read -p "Do you want to continue building for v7? ([y]/n)" yn &&  [[ "X${yn,,}" = "Xn" ]] && unset versionFlag && readEx "${YELLOW_COL}You choose to build for v8${RESET_COL}... Continue in " 5 " seconds"; echo
           if isCygwin; then
             if [ "X${BUILD_BIT_WIDE}" = "X32" ]; then
               export CMKFLAGS="-A Win32"
               export GENERATOR=$(echo $GENERATOR | sed -r 's/^(.*) Win64$/\1/')
             fi
-            nlconf -unit_test all
+            nlconf ${versionFlag} -unit_test all
           else
-            nlconf -debug -unit_test all
+            nlconf ${versionFlag} -debug -unit_test all
           fi
+          [[ -z ${versionFlag} ]] || echo "Building ${versionFlag}"
         fi
       fi
       iRC=$?
       [[ ! -z logicalProcessors ]] && git restore ${CAMP_AC_ROOT}/wpp/wpp.cmake
       ! isCygwin && [[ $iRc -eq 0 ]] && initBuildEnv # Updates LD_LIBRARY_PATH to include ACC specific thirdparty libs.
       [[ $iRc -eq 0 ]] || { echo "${RED_COL}ALERT:${RESET_COL} nlconf returned error."; return ${iRc}; }
+      if [[ -n ${restoreConfig} ]] && [[ -n ${CONFIG_BK_DIR} ]]; then
+        [[ $(fCount ${CONFIG_BK_DIR}) -eq 0 ]] && echo "${YELLOW_COL}Warn:${RESET_COL} No files can be restored from ${YELLOW_COL}${CONFIG_BK_DIR}{RESET_COL}" || cp -p -v -i ${CONFIG_BK_DIR}/*.xml $(getCampRoot)/nl/build/ncs/conf/
+       fi
     else
       echo "${RED_COL}ALERT:${RESET_COL} You do not seem to have campaign source code"
       echo "${RED_COL}ALERT:${RESET_COL} To setup fresh campaign dev/src Execute: ${YELLOW_COL}makeCamp  -f${RESET_COL}"
@@ -6283,16 +6686,19 @@ function cWSL {
 # https://www.nucleustechnologies.com/blog/ways-to-mount-and-unmount-vhd-vhdx-files/#:~:text=With%20the%20help%20of%20Windows%20PowerShell%20cmdlet%2C%20you,VHD%2FVHDX%20files%3A%20Mount-DiskImage%20-ImagePath%20%E2%80%9Clocation%20of%20VHD%20file%E2%80%9D
 
 # Before running initWSL you need to create a virtual disk with through Windows UI(Create and format hard disk -> Action -> Create VHD) or via PS commandlet.
-# PS: New-VHD -Path "D:\build\acc_build1.vhd" -Fixed -SizeBytes 4GB
-# PS: wsl --mount \\.\PhysicalDrive3 --bare
+# PS: New-VHD -Path "D:\build\acc_build.vhd" -Fixed -SizeBytes 4GB
+# PS: wsl --mount --vhd 'D:\build\acc_build.vhd' --bare
 # Launch a new Debian terminal.
 # DEB: sudo gparted # run gparted and create a single partition with ext4 filesystem.
 # PS: wsl --unmount \\.\PhysicalDrive3
+# cygwin: cd $(ustyle 'D:\build')
+# cygwin: gzip -9 acc_build.vhd
+# cp -f -p acc_build.vhd.gz ${TEAM_SHARE_LOCATION}/
 
-  isCygwin || { echo "${FUNCNAME[0]} Not available on $(getOS)" | STDERR || return $?; }
+  isCygwin || { echo "'${FUNCNAME[0]}' Not available on $(getOS)" | STDERR || return $?; }
   _CONTAINS -h "$@" && echo "${YELLOW_COL}Usage:${RESET_COL}  ${FUNCNAME[0]} [ -h(elp) ] [-n (do not restart WSL)] [ -l(list all attached virtual disks)] [vhd path1(default: $(readlink -f $CAMP_AC_ROOT/../acc_build.vhd))] [vhd path2] ..." && return
 
-  local getVDiskCmd="\$loc=Get-Disk | Where-Object { \$_.Model -match 'Virtual Disk' }  | Select-Object -Property @{N='id';E={\$_.ObjectId -replace '^.*\\\\\\\\\?\\\\([^{]+).*','\$1' -replace '#', '' }}, Location; \$info=Get-CimInstance -query 'SELECT * from Win32_DiskDrive' | Where-Object { \$_.Model -eq 'Microsoft Virtual Disk' } | Select-Object -Property @{N='id';E={(\$_.PNPDeviceID -replace '\\\\','').tolower()}}, DeviceID, @{N='Size_GB';E={\$_.Size / 1GB}};\$loc | Join-Object \$info -On id | Select-Object -Property Location, DeviceID, Size_GB"
+  local getVDiskCmd="\$loc=Get-Disk | Where-Object { \$_.Model -match 'Virtual Disk' }  | Select-Object -Property @{N='id';E={\$_.ObjectId -replace '^.*\\\\\\\\\?\\\\([^{]+).*','\$1' -replace '#', '' }}, Location; \$info=Get-CimInstance -query 'SELECT * from Win32_DiskDrive' | Where-Object { \$_.Model -eq 'Microsoft Virtual Disk' } | Select-Object -Property @{N='id';E={(\$_.PNPDeviceID -replace '\\\\','').tolower()}}, DeviceID, @{N='Size_GB';E={\$_.Size / 1GB}}; if(\$loc -and \$info) { Join-Object -Left \$loc -Right \$info -LeftJoinProperty id -RightJoinProperty id -Type OnlyIfInBoth -LeftProperties Location -RightProperties DeviceID,Size_GB }"
 
   _CONTAINS -l "$@" && wps -Command "${getVDiskCmd}" && return
   local devicePath diskNumber
@@ -6304,10 +6710,9 @@ function cWSL {
     vhdPaths[${i}]=$(native "$p")
     i=$[$i+1]
   done
-  echo "Mounting ${vhdPaths[@]}"
   if ! _CONTAINS -n "$@"; then
     wps -Command 'wsl --shutdown; Restart-Service vmcompute; wsl -l --all -v'
-    local cmd="\$loc=Get-Disk | Where-Object { \$_.Model -match 'Virtual Disk' }  | Select-Object -Property @{N='id';E={\$_.ObjectId -replace '^.*\\\\\\\\\?\\\\([^{]+).*','\$1' -replace '#', '' }}, Location; \$info=Get-CimInstance -query 'SELECT * from Win32_DiskDrive' | Where-Object { \$_.Model -eq 'Microsoft Virtual Disk' } | Select-Object -Property @{N='id';E={(\$_.PNPDeviceID -replace '\\\\','').tolower()}}, DeviceID, @{N='Size_GB';E={\$_.Size / 1GB}};\$loc | Join-Object \$info -On id | Select-Object -Property Location, DeviceID, Size_GB"
+    local cmd="\$loc=Get-Disk | Where-Object { \$_.Model -match 'Virtual Disk' }  | Select-Object -Property @{N='id';E={\$_.ObjectId -replace '^.*\\\\\\\\\?\\\\([^{]+).*','\$1' -replace '#', '' }}, Location; \$info=Get-CimInstance -query 'SELECT * from Win32_DiskDrive' | Where-Object { \$_.Model -eq 'Microsoft Virtual Disk' } | Select-Object -Property @{N='id';E={(\$_.PNPDeviceID -replace '\\\\','').tolower()}}, DeviceID, @{N='Size_GB';E={\$_.Size / 1GB}}; Join-Object -Left \$loc -Right \$info -LeftJoinProperty id -RightJoinProperty id -Type OnlyIfInBoth -LeftProperties Location -RightProperties DeviceID,Size_GB"
     local vdisks="$(wps -Command "${getVDiskCmd}")"
     vdisks=$(trim "${vdisks}")
     echo "List of already attached Virtual drives on Windows:"
@@ -6318,6 +6723,7 @@ function cWSL {
       [[ ! -z $p ]] && wps -Command "Dismount-DiskImage -ImagePath ${p}"
     done
   fi
+  echo "Mounting ${vhdPaths[@]}"
   for p in ${vhdPaths[@]}; do
     [[ $(ustyle "$p") = $(native $(readlink -f $CAMP_AC_ROOT/../acc_build.vhd)) ]] && [[ ! -f $(native $(readlink -f $CAMP_AC_ROOT/../acc_build.vhd)) ]] && { echo "Copying Virtual Disk ..." && cp ${TEAM_SHARE_LOCATION}/acc_build.vhd.gz $CAMP_AC_ROOT/../ && echo "Extracting/Creating Virtual Disk... " && gunzip $CAMP_AC_ROOT/../acc_build.vhd.gz; }
     local diskInfo=$(wps -Command "Mount-DiskImage -ImagePath ${p} | Select-Object DevicePath, Number | Format-Table -hidetableheaders")
@@ -6365,6 +6771,9 @@ function wcrun {
     capture*| screen* | grab*)
       __invoke captureScreen "$@"
     ;;
+    ccb| cursor-chat-browser)
+      __invoke runCursorChatBrowser "$@"
+    ;;
     auto*|test*)
       __invoke runautotests "$@"
     ;;
@@ -6397,10 +6806,14 @@ function wcrun {
 }
 function wcinstall {
   local appName=$1
+  appName=$(trim ${appName%[*})
   shift
   case "${appName,,}" in
     apache* | web* | httpd*)
       installApache "$@"
+    ;;
+    arti*)
+      setupArtifactory "$@"
     ;;
     campinst*)
       setupCampaignDevServer "$@"
@@ -6435,7 +6848,7 @@ function wcinstall {
         installgradle "$@"
     ;;
     git*)
-        installgit "$@"
+        installGit "$@"
     ;;
     pr|gh*)
         installgh "$@"
@@ -6449,6 +6862,9 @@ function wcinstall {
     maven|mvn)
       installMaven
     ;;
+    miller|mlr)
+      installMiller "$@"
+    ;;
     node*)
       installNode "$@"
     ;;
@@ -6457,6 +6873,9 @@ function wcinstall {
     ;;
     perf*)
       setup_perf_stk "$@"
+    ;;
+    proxy|squid)
+      installSquidProxy "$@"
     ;;
     pwsh|wps|powershell*)
       installPowershell "$@"
@@ -6506,7 +6925,7 @@ function wcinstall {
   return $?
 }
 function refreshEnvPath_Windows {
-  isCygwin || { echo "${FUNCNAME[0]} Not available on $(getOS)" | STDERR || return $?; }
+  isCygwin || { echo "'${FUNCNAME[0]}' Not available on $(getOS)" | STDERR || return $?; }
 #  local NEW_SYS_PATH="$(reg query 'HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Environment' /v PATH | tr -d '\r' | sed -r 's,\s\s+,\t,g' | awk -F '\t' '{ print $4; }' | grep -v -E '^\s*$')"
   local NEW_SYS_PATH="$(wps -Command "(Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment').Path" | sed -r 's,\r$,,g')"
   local expandVars
@@ -6588,9 +7007,15 @@ fi
 check_CAMP_AC_ROOT
 [[ ! -d $CAMP_AC_ROOT ]] && echo "Please ensure CAMP_AC_ROOT env variable points to existing directory" && return 1
 if ! exec_command_exists apt-cyg || [ "X${1,,}" = "X-f" ]; then
+  createShortCut
   trim "$(wps -Command '(Get-DnsClientGlobalSetting).SuffixSearchList')" | grep ${ADOBE_CORP_DOMAIN} > /dev/null
   [[ $? -eq 0 ]] || wps -Command "Set-DnsClientGlobalSetting -SuffixSearchList @('${ADOBE_CORP_DOMAIN}')"
-  [[ $(whoami) =~ ^[[:alnum:]]+$ ]] || updateUser
+  [[ $(whoami) =~ ^[[:alnum:]]+$ ]] || { 
+    updateUser
+    readEx "Closing terminal in " 10 " seconds... Press Ctrl+C to abort or any other key to exit this session"
+    openTerm & 
+    exit
+  }
   [[ ${COMPUTERNAME,,} =~ $(whoami) ]] || { echo "Your computer-name ${YELLOW_COL}${COMPUTERNAME}${RESET_COL} can be a more friendly/identifiable name."; 
     readEx "Press any key to continue with existing name...Else exit the terminal and manually change your computer name, reboot the machine and re-execute ${FUNCNAME[0]} " 10 " seconds left."; [[ $? -eq 0 ]] || exit; }
   setupSSHKeys
@@ -6612,6 +7037,14 @@ if ! exec_command_exists apt-cyg || [ "X${1,,}" = "X-f" ]; then
     [[ -f apt-cyg ]] && rm -f apt-cyg
     download https://raw.githubusercontent.com/transcode-open/apt-cyg/master/apt-cyg
   fi
+  local TRUSTEDKEY_CYGWIN_SUM=$(cat apt-cyg | grep TRUSTEDKEY_CYGWIN_SUM | awk -F'[\"=]' '{print $3}')
+  local TRUSTEDKEY_CYGWIN_URL_LATEST=$(cat apt-cyg | grep TRUSTEDKEY_CYGWIN_URL_LATEST | awk -F'[\"=]' '{print $3}')
+  local TRUSTEDKEY_CYGWIN_SUM_LATEST=$(curl -s $TRUSTEDKEY_CYGWIN_URL_LATEST | sha512sum | awk '{print $1}')
+  if [[ ${TRUSTEDKEY_CYGWIN_SUM_LATEST}  != ${TRUSTEDKEY_CYGWIN_SUM} ]]; then
+    echo "TRUSTEDKEY_CYGWIN_SUM specified in apt-cyg is different from latest checksum!. Fixing downloaded apt-cyg ..." | STDWARN
+    sed -i -r "s,\s*TRUSTEDKEY_CYGWIN_SUM=.*,TRUSTEDKEY_CYGWIN_SUM=\"${TRUSTEDKEY_CYGWIN_SUM_LATEST}\",g" apt-cyg
+  fi
+
   [[ -f apt-cyg ]] && chmod +x apt-cyg && mv -f apt-cyg /usr/local/bin/
   rm -rf /tmp/.*
   rm -rf /tmp/*
@@ -6631,6 +7064,7 @@ if ! exec_command_exists apt-cyg || [ "X${1,,}" = "X-f" ]; then
   echo "You can run also run ${YELLOW_COL}python $CAMP_AC_ROOT/../acc-dev/acc-dev-setup/utils.py cygmirror${RESET_COL} to find out fastest mirrors. Use windows python3"
   readEx "Press Ctrl+C to abort...Then reset apt-cyg params appropriately and restart setup process again, Else press any other key to continue as is" 5
   aptS update
+  [[ $? -eq 0 ]] || { echo "${RED_COL}ALERT:${RESET_COL} Error executing cygwin command line installer ${YELLOW_COL}apt-cyg${RESET_COL}"; return 1; }
   # nss Installs certutil which clashes with windows own certutil.
   aptS install wget curl nss mkfontdir python3-devel
   if ! exec_command_exists wget  || [ -z "$(wget -V | head -n 1 | grep -i wget)" ]; then
@@ -6645,72 +7079,59 @@ if ! exec_command_exists apt-cyg || [ "X${1,,}" = "X-f" ]; then
   aptS update
   aptS update-setup
   aptS upgrade-self
-  [[ "X${1,,}" = "X-f" ]] && { echo $2 | aptS dist-upgrade; }
+  [[ "X${1,,}" = "X-f" ]] && { [[ -n $2 ]] && echo $2 || echo "N"; } | aptS dist-upgrade
   aptS update
   aptS install btop
+  aptS install procps-ng
+  aptS install jq
+  aptS install vim-common
+  aptS install vim
   local pw_execution_policy_Cmd="-Command Set-ExecutionPolicy Unrestricted -Scope CurrentUser"
-  wps -Command "Start-Process $PWSHELL  -ArgumentList \"$pw_execution_policy_Cmd\" -WindowStyle hidden -Verb RunAs"
+  wps -Command "Start-Process $PWSHELL  -ArgumentList \"$pw_execution_policy_Cmd\" -Wait -WindowStyle hidden -Verb RunAs"
   echo "Stopping windows openssh(ssh-agent) service..We need to use ${OSTYPE}'s ssh-agent"
 #  win_creds=$(getCmdValue "cmd /c '$(where whoami | grep Windows)'")
 #  runas /profile /savecred /user:${win_creds} "wps  -Command 'Set-Service ssh-agent -StartupType Manual;  Stop-Service ssh-agent'"
 #  runas /profile /savecred /user:${win_creds} "wps  -Command 'Set-Service ssh-agent -StartupType Manual'"
   local stop_windows_builtin_ssh_Cmd="-Command  Stop-Service ssh-agent"
-  wps -Command "Start-Process $PWSHELL  -ArgumentList \"$stop_windows_builtin_ssh_Cmd\" -WindowStyle hidden -Verb RunAs"
+  wps -Command "Start-Process $PWSHELL  -ArgumentList \"$stop_windows_builtin_ssh_Cmd\" -Wait -WindowStyle hidden -Verb RunAs"
   local SSHD_PID=$(ps -e | grep sshd |  sed -r 's/[[:space:]]+/ /g' | cut -d ' '  -f2) && [[ ! -z ${SSHD_PID} ]] && kill -TERM ${SSHD_PID}
   local remove_cygsshd_Cmd="-Command  Stop-Service -Name cygsshd; Remove-Service -Name cygsshd; sc delete cygsshd"
-  wps -Command "Start-Process $PWSHELL  -ArgumentList \"$remove_cygsshd_Cmd\" -WindowStyle hidden -Verb RunAs"
+  wps -Command "Start-Process $PWSHELL  -ArgumentList \"$remove_cygsshd_Cmd\" -Wait -WindowStyle hidden -Verb RunAs"
   aptS remove openssh
   aptS install openssh
   sed -i -r "s,^.*PermitUserEnvironment.*,PermitUserEnvironment yes," /etc/sshd_config
   local restart_cygwin_sshd_Cmd="-Command Set-Service cygsshd -StartupType Manual; Restart-Service -Name cygsshd"
-  wps -Command "Start-Process $PWSHELL  -ArgumentList \"${restart_cygwin_sshd_Cmd}\" -WindowStyle hidden -Verb RunAs"
+  wps -Command "Start-Process $PWSHELL  -ArgumentList \"${restart_cygwin_sshd_Cmd}\" -Wait -WindowStyle hidden -Verb RunAs"
 #  reg add "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Run" /f /v 001_cygsshd_no_vpn /t REG_SZ /d "pwsh -Command \"Start-Process pwsh  -ArgumentList '-Command C:\\cygwin64\\bin\\bash.exe --login -i -c onChangeVpnStatus' -WindowStyle hidden -Verb RunAs\""
 # pwsh -Command "Start-Process pwsh  -ArgumentList '-Command C:\cygwin64\bin\bash.exe --login -i -c """""""". /usr/local/bin/cygsshd.sh""""""""' -Verb RunAs"
 # pwsh -Command "Start-Process pwsh  -ArgumentList '-Command C:\cygwin64\bin\bash.exe --login -i -c """"""""onChangeVpnStatus""""""""' -Verb RunAs"
   local set_windows_builtin_ssh_Manual_Cmd="-Command Set-Service ssh-agent -StartupType Manual"
-  wps -Command "Start-Process $PWSHELL  -ArgumentList \"$set_windows_builtin_ssh_Manual_Cmd\" -WindowStyle hidden -Verb RunAs"
+  wps -Command "Start-Process $PWSHELL  -ArgumentList \"$set_windows_builtin_ssh_Manual_Cmd\" -Wait -WindowStyle hidden -Verb RunAs"
   if [ -z "$(findW -u psql)" ]; then
     aptS install postgresql-client
   fi
   aptS -X install gnupg
   aptS install openssl ping vim unzip zip dos2unix nc bc procps procps-ng jq rlwrap bash-completion
-  if ! exec_command_exists git; then
-    aptS install git
-  fi
-  if [ "X${1,,}" = "X-f" ]; then
-      aptS remove git
-      aptS install git
-  else
-    local gitv
-    read -a gitv <<< "$(git --version | cut -d ',' -f1 | sed -r 's/^(.*?)(\s)([0-9\.]+)(\s*).*/\3/' | xargs -d '.')"
-    if [[ ${gitv[0]} -lt 2 ]] || [[ ${gitv[0]} -eq 2 &&  ${gitv[1]} -lt 30 ]]; then
-      aptS remove git
-      aptS install git
-    fi
-  fi
+  wcinstall git ${1,,}
   download https://raw.githubusercontent.com/git/git/master/contrib/completion/git-completion.bash  ~/.git-completion.bash
   download https://raw.github.com/git/git/master/contrib/completion/git-prompt.sh           ~/.git-prompt.bash
+
   # exec_command_exists updatedb && updatedb
   fetchEnvInfo
   wps -Command "Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -Name RegisteredOrganization -Value '${ORG_UNIT_NAME}'"
-  wps -Command "Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -Name RegisteredOwner -Value '$(echo $(whoami) $(hostname) | sed -r 's,[^[:alnum:]], ,g')'"
+  local fullname default_fullname="$(echo $(whoami) $(hostname))"
+  default_fullname=$(echo ${default_fullname} | sed -r 's,[^[:alnum:]], ,g')
+  readEx "${RED_COL}ALERT:${RESET_COL}. if you want to specify your full name, Press any key in " 15 " seconds..Else it will use ${YELLOW_COL}${default_fullname}${RESET_COL} as your full name."
+  if [[ $? -eq 0 ]]; then
+    read -p "Enter Your full Name:" fullname
+    [[ -n $fullname ]] || fullname="${default_fullname}"
+  else
+    echo
+  fi
+  fullname=$(echo ${fullname} | sed -r 's,[^[:alnum:]], ,g')
+  wps -Command "Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -Name RegisteredOwner -Value '${fullname}'"
   pushd $CAMP_AC_ROOT
-  git init
-  git config --global init.defaultBranch ${MASTER_BRANCH}
-  git config --global user.name "$(getUserInfo -fullname)"
-  git config --global user.email "$(whoami)@${ADOBE_DOMAIN}"
-  git config --global core.autocrlf true
-  git config --global pull.rebase true
-  git config --global fetch.prune true
-  git config --global diff.colorMoved zebra
-  git config --global alias.up '!git remote update -p; git merge --ff-only @{u}'
-  git config --global alias.amend-to '!f() { SHA=`git rev-parse "$1"`; git commit --fixup "$SHA" && GIT_SEQUENCE_EDITOR=true git rebase --interactive --autosquash "$SHA^"; }; f'
-  git config --global alias.root 'rev-parse --show-toplevel'
-  git config --global alias.exec '!exec'
-  git config --global alias.logline "log --graph --pretty=format:'%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%cr) %C(bold blue)<%an>%Creset' --abbrev-commit"
-  git config --global alias.parent '!git show-branch | sed "s/].*//" | grep "\*" | grep -v "$(git rev-parse --abbrev-ref HEAD)" | head -n1 | sed "s/^.*\[//"'
-  git config --global alias.br "branch --format='%(HEAD) %(color:yellow)%(refname:short)%(color:reset) - %(contents:subject) %(color:green)(%(committerdate:relative)) [%(authorname)]' --sort=-committerdate"
-  # some more git aliases : https://github.com/laurentkempe/dotfiles/blob/master/git/.gitconfig.aliases
+  gitinit
   popd
   if isHostAlive git.${ADOBE_CORP_DOMAIN}; then
     pushd $CAMP_AC_ROOT/..
@@ -6747,8 +7168,6 @@ if ! exec_command_exists apt-cyg || [ "X${1,,}" = "X-f" ]; then
   local reRegisterAllAppsWithTaskBar_Cmd="Import-Module -Name Appx ${UseWindowsPowerShell} -WarningAction SilentlyContinue; Get-AppXPackage -AllUsers | Foreach {Add-AppxPackage -DisableDevelopmentMode -Register \"\$(\$_.InstallLocation)\AppXManifest.xml\"}"
   wps -Command "${reRegisterAllAppsWithTaskBar_Cmd}"
 
-  Get-AppXPackage -AllUsers | Foreach {Add-AppxPackage -DisableDevelopmentMode -Register “$($_.InstallLocation)\AppXManifest.xml”
-  createShortCut
   reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced"  /f /v ShowSecondsInSystemClock /t REG_DWORD /d 1
   reg add "HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\ServiceProvider"      /f /v HostsPriority /t REG_DWORD /d 0x0000001F
   reg add "HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\ServiceProvider"      /f /v LocalPriority /t REG_DWORD /d 0x0000002F
@@ -6757,20 +7176,23 @@ if ! exec_command_exists apt-cyg || [ "X${1,,}" = "X-f" ]; then
   echo "Disabling IPv6 from all network interfaces"
   reg add "HKLM\SYSTEM\CurrentControlSet\Services\Tcpip6\Parameters" /f /v DisabledComponents /t REG_DWORD /d 0x000000FF
   local disableIPv6_on_windows_Cmd="-Command Disable-NetAdapterBinding -Name '*' -ComponentID ms_tcpip6"
-  wps -Command "Start-Process $PWSHELL  -ArgumentList \"${disableIPv6_on_windows_Cmd}\" -Verb RunAs"
+  wps -Command "Start-Process $PWSHELL  -ArgumentList \"${disableIPv6_on_windows_Cmd}\" -Wait -Verb RunAs"
   aptS remove nss
   registerRootCert
+  wcinstall artifactory
   wcinstall snowflake
   wcinstall gh
   local install_Invoke_Sqlcmd_Cmd="-Command Install-Module -Name SqlServer"
-  wps -Command "Start-Process $PWSHELL  -ArgumentList \"${install_Invoke_Sqlcmd_Cmd}\" -Verb RunAs"
+  wps -Command "Start-Process $PWSHELL  -ArgumentList \"${install_Invoke_Sqlcmd_Cmd}\" -Wait -Verb RunAs"
+  local install_Join_Object_Cmd="-Command Install-Module -Name Join-Object -RequiredVersion 2.0.3 -AllowClobber"
+  wps -Command "Start-Process $PWSHELL  -ArgumentList \"${install_Join_Object_Cmd}\" -Wait -Verb RunAs"
 
   registerWithWindowsCredentialManager
   ! exec_command_exists clsie && echo "alias clsie='wps -Command \"RunDll32.exe InetCpl.cpl, ClearMyTracksByProcess 255\"'" >> ~/.before.sh
   ! exec_command_exists clsme && echo "alias clsme='rm -rf $(cygpath -u ${LOCALAPPDATA})/Packages/Microsoft.MicrosoftEdge_8wekyb3d8bbwe/AC/#*'" >> ~/.before.sh
   cacheEnvVar EXPERT_MODE yes
   cacheEnvVar -c EXPERT_MODE
-  cacheEnvVar SECRET_PASSWORD 'ASK_HPARMAR@ADOBE.COM'
+  cacheEnvVar SECRET_PASSWORD 'Use getSecretPassword(authenticated) command to fetch it'
   cacheEnvVar -c SECRET_PASSWORD
   cacheEnvVar -c EXPERT_MODE
   cacheEnvVar VPN_PIN 1234
@@ -6815,7 +7237,7 @@ function getIDEVersion {
       IDE_VERSION=$(getCmdValue "echo \"${IDE_VERSION}\"")
       local vsVersion=$(wps  -Command \(Get-Item "\"${devenvPath}\""\).VersionInfo.ProductVersion)
       if [ ${vsVersion%%.*} -gt 15 ]; then
-        cacheEnvVar WindowsSdkDir NA
+          [[ -z ${WindowsSdkDir} || ! $WindowsSdkDir =~ '\' ]] && cacheEnvVar  WindowsSdkDir "$(trim $(wps -Command '(Get-ItemProperty -Path "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows Kits\Installed Roots").KitsRoot10') | sed 's,\\,\\\\,g' )"
       fi
       if [ -z "${VSINSTALLDIR+x}" ] || [ ! -d "${VSINSTALLDIR}" ] || [ ! -x "${VSINSTALLDIR}" ]; then
         while [ ! -z "$(echo "$devenvPath" | grep Common)" ]
@@ -6839,7 +7261,7 @@ function getIDEVersion {
 # With VS2019, I think it comes installed by default.
 function installCmakeForWindows {
   if exec_command_exists cmake || [ "X${1,,}" = "X-f" ]; then
-    if [ $(which cmake | cut -d '/' -f2) != "cygdrive" ]; then
+    if [ $(type -P cmake | cut -d '/' -f2) != "cygdrive" ]; then
         echo "Removing cmake installed by ${OSTYPE}"
         aptS remove cmake
     else
@@ -6903,7 +7325,7 @@ function buildsolutionInIDE {
       fi
     else
       make -C build/
-      local cpCmd="$(which cp) -f -p -v"
+      local cpCmd="$(type -P cp) -f -p -v"
       ${cpCmd} ${CAMP_AC_ROOT}/nl/build/nlsrvmod/libnlsrvmod.so ${CAMP_AC_ROOT}/nl/build/ncs/bin/libnlsrvmod.so
       ${cpCmd} ${CAMP_AC_ROOT}/nl/build/ncs/datakit/xtk/${CAMP_LANG}/schema/* ${CAMP_AC_ROOT}/nl/build/ncs/datakit/xtk/${CAMP_LANG}/
     fi
@@ -6930,7 +7352,7 @@ function setupOS {
   if isCygwin; then
     setupCygwinEnv "$@" &
   else
-    setupDebianEnv "$@" # No BG..Since it also tries to mount indshare and change env var $TEAM_SHARE_LOCATION.
+    setupDebianEnv "$@" # No BG..Since it also tries to mount indstore and change env var $TEAM_SHARE_LOCATION.
   fi
 }
 function welcome {
@@ -6963,7 +7385,7 @@ function welcome {
     javaReq="JDK 1.8(64-bit) or higher.Download and installed from ${YELLOW_COL}https://artifactory-uw2.adobeitc.com/artifactory/list/binaries-azul-remote/ZuluCatalog/Zulu8/8.50/zulu8.50.0.22-sa-fx-jdk8.0.272-win_x64.msi${RESET_COL}"
   fi
   if isCygwin; then
-    if ! exec_command_exists cmake  || [ $(which cmake | cut -d '/' -f2) != "cygdrive" ]; then
+    if ! exec_command_exists cmake  || [ $(type -P cmake | cut -d '/' -f2) != "cygdrive" ]; then
       cmakeReq="Windows cmake. Run 'wcinstall cmake' from ${OSTYPE} prompt to install it."
     fi
   fi
@@ -7032,10 +7454,13 @@ function welcome {
   echo -e "10. Splunk Logs search       : ${YELLOW_COL}https://splunk.or1.adobe.net/en-US/app/search/search${RESET_COL}\n\tSample search string : ${YELLOW_COL}index=\"campaign_prod\" host=\"wsu-mkt-prod*\" sourcetype  IN (webmdl_log, weblog) error | reverse${RESET_COL}"
   echo -e "11. ACC Builds\n\tOld\t\t     : ${YELLOW_COL}"'\\\du1isi0\\share\\rd_priv'"${RESET_COL}\n\t\t\t     : ${YELLOW_COL}"'\\\du1isi0\\share\\rd_arch'"${RESET_COL}\n\t\t\t       Request access to the group DU1ISI0_RD_PRIV_RO from the IAM portal ${YELLOW_COL} https://iam.${ADOBE_CORP_DOMAIN}${RESET_COL}"
   echo -e "\tNew\n\ti.  Login (okta)     :${YELLOW_COL} https://artifactory-uw2.adobeitc.com ${RESET_COL} \n\tii. Download URL     : ${YELLOW_COL}https://artifactory-uw2.adobeitc.com/artifactory/generic-campaign-acc-artifacts-release${RESET_COL}"
+  echo -e "\tCreate\n\ti.  Login (okta)     :${YELLOW_COL} https://campaignbuilder.ci.corp.adobe.com/securityRealm/commenceLogin ${RESET_COL} \n\tii. Build\t     : ${YELLOW_COL}https://campaignbuilder.ci.corp.adobe.com/job/ACC_Build/build${RESET_COL}"
+
   echo "12. Get latest .bashrc       : ${YELLOW_COL}git clone git@git.${ADOBE_CORP_DOMAIN}:hparmar/acc-dev.git $(dirname $(getCampRoot))/acc-dev${RESET_COL}"
   echo -ne '\tStable Version       : '; echo "${YELLOW_COL}cp '${TEAM_SHARE_LOCATION}.bashrc' ~ ${RESET_COL}"
   echo -e "13. UCO Framework\t     : ${YELLOW_COL}https://uco.adobe-campaign.com/${RESET_COL}"
-  echo "14. Env variable 'DEFAULT_PASSWORD' sets default password used by script. Use command ${YELLOW_COL}'cacheEnvVar DEFAULT_PASSWORD xxxxxx'${RESET_COL} to set new password."
+  echo -e "14. Manual Autotest\t     : ${YELLOW_COL}https://campaign-rd.ci.corp.adobe.com/job/Autotests_ManualRun/build${RESET_COL}"
+  echo "15. Env variable 'DEFAULT_PASSWORD' sets default password used by script. Use command ${YELLOW_COL}'cacheEnvVar DEFAULT_PASSWORD xxxxxx'${RESET_COL} to set new password."
   if isCygwin && [[ ! -z "${TERMINATING_CONSOLE_WIN_PID}" ]]; then
 #    ps -W | tr -s '[:blank:]' | cut -d ' ' -f5 | grep ${TERMINATING_CONSOLE_WIN_PID} > /dev/null
 #    if [ $? -eq 0 ]; then
@@ -7105,8 +7530,8 @@ function genSSLCerts {
   sudo chown -R $(whoami) ${APACHE_CONF_DIR}
   echo "${GREEN_COL}INFO:${RESET_COL} Using ${OPENSSL_BIN} $(${OPENSSL_BIN} version)"
   local cname=$(hostname --fqdn)
-  local cpCmd="$(which cp) -f -p"
-  local mvCmd="$(which mv) -f"
+  local cpCmd="$(type -P cp) -f -p"
+  local mvCmd="$(type -P mv) -f"
 
   case $# in
     0)
@@ -7164,8 +7589,9 @@ function genSSLCerts {
     echo "Ask hparmar@${ADOBE_DOMAIN} for root certificate signing password in case you are using existing(in git) root certificate."
     echo "Else enter password you used for generating your own root signing certificate"
     echo "********************************************************************"
-    echo ""
+    echo
     local passwordAttempts=3
+    getSecretPassword
     while [ $passwordAttempts -ne 0 ]
     do
       if [[ -z ${SECRET_PASSWORD+x} || ${passwordAttempts} -lt 3 ]]; then
@@ -7195,7 +7621,7 @@ function genSSLCerts {
         read -p "Do you want to register? (y/[n])" yn
         yn=${yn:0:1}
       else
-        echo ""
+        echo
       fi
       if [ "X${yn,,}" = "Xy" ] ;  then
         if [[ -z ${SECRET_PASSWORD+x} ]]; then
@@ -7203,17 +7629,17 @@ function genSSLCerts {
           echo "You will be asked(twice) for export password for PFX export.Use the same password third time when asked for PFX Import."
           ${OPENSSL_BIN} pkcs12 -inkey server_private_key.pem -in server_cert.pem  -export -out server_merged_public_and_private_key.pfx
           local delStoreCmd="-Command ${CERT_UTIL} -delstore My ${cname}"
-          wps -Command "Start-Process $PWSHELL  -ArgumentList '$delStoreCmd' -Verb RunAs"
+          wps -Command "Start-Process $PWSHELL  -ArgumentList '$delStoreCmd' -Wait -Verb RunAs"
           # local add_pfx_to_StoreCmd="-Command ${CERT_UTIL} -f -importpfx ${wp}server_merged_public_and_private_key.pfx; sleep 3"
           local add_pfx_to_StoreCmd="-Command \$p=(Read-Host -AsSecureString Enter PFX Import Password); Import-PfxCertificate -Password \$p -FilePath ${wp}server_merged_public_and_private_key.pfx -CertStoreLocation Cert:\LocalMachine\My; sleep 3"
-          wps -Command "Start-Process $PWSHELL -ArgumentList '$add_pfx_to_StoreCmd' -Verb RunAs"
+          wps -Command "Start-Process $PWSHELL -ArgumentList '$add_pfx_to_StoreCmd' -Wait -Verb RunAs"
         else
           ${OPENSSL_BIN} pkcs12 -inkey server_private_key.pem -in server_cert.pem  -export -out server_merged_public_and_private_key.pfx -passout pass:${SECRET_PASSWORD}
           local delStoreCmd="-Command ${CERT_UTIL} -delstore My ${cname}"
-          wps -Command "Start-Process $PWSHELL  -ArgumentList '$delStoreCmd' -Verb RunAs"
+          wps -Command "Start-Process $PWSHELL  -ArgumentList '$delStoreCmd' -Wait -Verb RunAs"
           # local add_pfx_to_StoreCmd="-Command ${CERT_UTIL} -f -importpfx -p ${SECRET_PASSWORD} ${wp}server_merged_public_and_private_key.pfx; sleep 3"
           local add_pfx_to_StoreCmd="-Command \$p=ConvertTo-SecureString  -String \\\"${SECRET_PASSWORD}\\\" -AsPlainText -Force; Import-PfxCertificate -Password \$p -FilePath ${wp}server_merged_public_and_private_key.pfx -CertStoreLocation Cert:\LocalMachine\My; sleep 3"
-          wps -Command "Start-Process $PWSHELL -ArgumentList '$add_pfx_to_StoreCmd' -Verb RunAs"
+          wps -Command "Start-Process $PWSHELL -ArgumentList '$add_pfx_to_StoreCmd' -Wait -Verb RunAs"
         fi
       fi
     fi
@@ -7221,7 +7647,7 @@ function genSSLCerts {
     echo "Root signing certificate not found..Generating a self signed certificate"
     echo "If you want a root signed certificate use 'registerRootCert' command"
     echo "first to generate a root certificate and then run this command"
-    echo ""
+    echo
     ${OPENSSL_BIN} req -config ./openssl.conf -new -x509 -sha256 -key server_private_key.pem -days 1095 -out server_self_signed_cert.pem
     iRc=$?
     ${mvCmd} server_self_signed_cert.pem server_cert.pem
@@ -7229,9 +7655,9 @@ function genSSLCerts {
       local CERT_UTIL="$(cygpath -w $(findW -i windows certutil))"
       local wp=$(getCmdValue getPlatformPath)
       local delStoreCmd="-Command ${CERT_UTIL} -delstore Root $(hostname --fqdn)"
-      wps -Command "Start-Process $PWSHELL  -ArgumentList '$delStoreCmd' -Verb RunAs"
+      wps -Command "Start-Process $PWSHELL  -ArgumentList '$delStoreCmd' -Wait -Verb RunAs"
       local addStoreCmd="-Command ${CERT_UTIL} -addstore Root ${wp}server_cert.pem"
-      wps -Command "Start-Process $PWSHELL  -ArgumentList '$addStoreCmd' -Verb RunAs"
+      wps -Command "Start-Process $PWSHELL  -ArgumentList '$addStoreCmd' -Wait -Verb RunAs"
       flushInput
       local yn
       read -p "Do you want to register this certificate in your machine's Personal(My) store? (y/[n]) " yn
@@ -7242,17 +7668,17 @@ function genSSLCerts {
           echo "You will be asked(twice) for export password for PFX export.Use the same password third time when asked for PFX Import."
           ${OPENSSL_BIN} pkcs12 -inkey server_private_key.pem -in server_cert.pem  -export -out server_merged_public_and_private_key.pfx
           local delStoreCmd="-Command ${CERT_UTIL} -delstore My ${cname}"
-          wps -Command "Start-Process $PWSHELL  -ArgumentList '$delStoreCmd' -Verb RunAs"
+          wps -Command "Start-Process $PWSHELL  -ArgumentList '$delStoreCmd' -Wait -Verb RunAs"
           # local add_pfx_to_StoreCmd="-Command ${CERT_UTIL} -f -importpfx ${wp}server_merged_public_and_private_key.pfx; sleep 3"
           local add_pfx_to_StoreCmd="-Command \$p=(Read-Host -AsSecureString Enter PFX Import Password); Import-PfxCertificate -Password \$p -FilePath ${wp}server_merged_public_and_private_key.pfx -CertStoreLocation Cert:\LocalMachine\My; sleep 3"
-          wps -Command "Start-Process $PWSHELL -ArgumentList '$add_pfx_to_StoreCmd' -Verb RunAs"
+          wps -Command "Start-Process $PWSHELL -ArgumentList '$add_pfx_to_StoreCmd' -Wait -Verb RunAs"
         else
           ${OPENSSL_BIN} pkcs12 -inkey server_private_key.pem -in server_cert.pem  -export -out server_merged_public_and_private_key.pfx -passout pass:${SECRET_PASSWORD}
           local delStoreCmd="-Command ${CERT_UTIL} -delstore My ${cname}"
-          wps -Command "Start-Process $PWSHELL  -ArgumentList '$delStoreCmd' -Verb RunAs"
+          wps -Command "Start-Process $PWSHELL  -ArgumentList '$delStoreCmd' -Wait -Verb RunAs"
           # local add_pfx_to_StoreCmd="-Command ${CERT_UTIL} -f -importpfx -p ${SECRET_PASSWORD} ${wp}server_merged_public_and_private_key.pfx; sleep 3"
           local add_pfx_to_StoreCmd="-Command \$p=ConvertTo-SecureString  -String \\\"${SECRET_PASSWORD}\\\" -AsPlainText -Force; Import-PfxCertificate -Password \$p -FilePath ${wp}server_merged_public_and_private_key.pfx -CertStoreLocation Cert:\LocalMachine\My; sleep 3"
-          wps -Command "Start-Process $PWSHELL -ArgumentList '$add_pfx_to_StoreCmd' -Verb RunAs"
+          wps -Command "Start-Process $PWSHELL -ArgumentList '$add_pfx_to_StoreCmd' -Wait -Verb RunAs"
         fi
       fi
     fi
@@ -7269,8 +7695,8 @@ function installApache {
   _CONTAINS -h "$@" && echo "${YELLOW_COL}Usage:${RESET_COL}  ${FUNCNAME[0]} [ -h(elp) | -f(force install) | -q(quite)] -- Installs apache from ${TEAM_SHARE_LOCATION}" && return
   local APACHE_CONF_DIR=${APACHE_ROOT}
   isCygwin && APACHE_CONF_DIR=$(cygpath -u ${APACHE_ROOT})conf
-  local cpCmd="$(which cp) -f -p"
-  local mvCmd="$(which mv) -f"
+  local cpCmd="$(type -P cp) -f -p"
+  local mvCmd="$(type -P mv) -f"
   [[ -e $(native ${TEAM_SHARE_LOCATION}Apache24_x64\\bin\\httpd.exe) ]] || { echo "You do not have permission to shared location ${TEAM_SHARE_LOCATION}..Please ask for enrollment to ${YELLOW_COL}INDSTORE_CAMPAIGN_ACC_INDIA_MUSTANG_RO${RESET_COL} group via ${YELLOW_COL}https://iam.${ADOBE_CORP_DOMAIN}${RESET_COL} from senior members of team" && return 2; }
   if [ ! -d "${APACHE_CONF_DIR}" ] || [ ! -e ${APACHE_CONF_DIR}/httpd.conf ] || [ "X${1,,}" = "X-f" ]; then
     [[ "X${1,,}" = "X-f" ]] && apache stop
@@ -7316,8 +7742,8 @@ function installApache {
         local pythonExeCount=$(wps -Command "(Get-Command python.exe).Source" | sed -r 's/[^\n[:print:]]//g' | wc -l)
         local pythonExe
         [[ ${pythonExeCount}  -eq 1 ]] && pythonExe=$(wps -Command "(Get-Command python.exe).Source" | sed -r 's/[^\n[:print:]]//g')
-        [[ -z ${pythonExe} ]] && pythonExe="$(native $(which python))"
-        [[ -z ${pythonExe} ]] && pythonExe="$(native $(which python3))"
+        [[ -z ${pythonExe} ]] && pythonExe="$(native $(type -P python))"
+        [[ -z ${pythonExe} ]] && pythonExe="$(native $(type -P python3))"
         [[ -z ${pythonExe} ]] && echo "${RED_COL}ALERT:${RESET_COL} No python Found. Upload to apache may not work." || { echo "Setting python executable ${YELLOW_COL}${pythonExe}${RESET_COL} as shebang for python server side script for upload to apache web server."; sed -i "1s,.*,\#\!${pythonExe//\\//},g"  ${APACHE_CONF_DIR}/../htdocs/save_file.py; }
         sudo mkdir ${APACHE_CONF_DIR}/../htdocs/upload/
         [[ -h ~/upload ]] || sudo ln -s ${APACHE_CONF_DIR}/../htdocs/upload ~/upload
@@ -7350,8 +7776,8 @@ function installApache {
       sudo ${cpCmd} ${CAMP_AC_ROOT}/../acc-dev/acc-dev-setup/uploader.html ${APACHE_CONF_DIR}htdocs/
       sudo ${cpCmd} ${CAMP_AC_ROOT}/../acc-dev/acc-dev-setup/save_file.py ${APACHE_CONF_DIR}htdocs/
       local pythonExe
-      [[ -z ${pythonExe} ]] && pythonExe="$(native $(which python))"
-      [[ -z ${pythonExe} ]] && pythonExe="$(native $(which python3))"
+      [[ -z ${pythonExe} ]] && pythonExe="$(native $(type -P python))"
+      [[ -z ${pythonExe} ]] && pythonExe="$(native $(type -P python3))"
       [[ -z ${pythonExe} ]] && echo "${RED_COL}ALERT:${RESET_COL} No python Found. Upload to apache may not work." || { echo "Setting python executable ${YELLOW_COL}${pythonExe}${RESET_COL} as shebang for python server side script for upload to apache web server."; sudo sed -i "1s,.*,\#\!${pythonExe//\\//},g"  ${APACHE_CONF_DIR}htdocs/save_file.py; }
       sudo mkdir ${APACHE_CONF_DIR}htdocs/upload
       sudo chown -R $(id -un):$(id -gn) ${APACHE_CONF_DIR}htdocs/upload/
@@ -7395,7 +7821,7 @@ function installApache {
 
 function installNewRelicAgent {
   _CONTAINS -h "$@" && echo "${YELLOW_COL}Usage:${RESET_COL}  ${FUNCNAME[0]} [ -h(elp)] -- Installs newrelic daemon/agent on debian" && return
-  isCygwin &&  { echo "${FUNCNAME[0]} Not available on $(getOS)" | STDERR || return $?; }
+  isCygwin &&  { echo "'${FUNCNAME[0]}' Not available on $(getOS)" | STDERR || return $?; }
   [[ -f /usr/local/bin/newrelic-daemon ]] || echo "No existing Newrelic agent found."
   [[ -x /usr/local/bin/newrelic-daemon ]] || echo "Newrelic daemon is not executable."
   local newrelicURL='https://apt.camp-infra.adobe.net/nlserver7/pool/experimental/n/newrelic-daemon'
@@ -7410,14 +7836,15 @@ function installNewRelicAgent {
   sudo mkdir /var/log/newrelic
   sudo chown $(whoami):$(id -gn) /var/log/newrelic
   newrelic-daemon -v
-  [[$? -eq 0 ]] || echo "${RED_COL}ALERT:${RESET_COL} New Relic daemon install failed !"
+  [[ $? -eq 0 ]] || echo "${RED_COL}ALERT:${RESET_COL} New Relic daemon install failed !"
   newrelic-daemon
-  [[$? -eq 0 ]] || echo "${RED_COL}ALERT:${RESET_COL} New Relic daemon launch failed !"
+  [[ $? -eq 0 ]] || echo "${RED_COL}ALERT:${RESET_COL} New Relic daemon launch failed !"
 
   echo "Newrelic daemon is now installed.Configuring all campaign instance(s) $({ readarray insts <<< $(getCampaignInstance 10); joinArray , "${insts[@]}" | tr -d '\n'; }) for new relic support."
   local nrLicenseKey nrLicenseKey2
   local encrypted_nrLicenseKey='raP+lvG04GcxKsjxkSNOm2+FKSdmHU0TghlRC+qU7gBfto/v3tH5jhfXXPZAVud8' # d0...e5 for Account: 1716029 - DX_Campaign_Engineering
   local encrypted_nrLicenseKey2='3U+3WWtYNiAM2RZT4ot4Ho0roJXwjZwVWK3ArOohUWNXV+wTF1Y7yQn7iFNvhGfq' # 8b...f5 for Account: 1189422 - DMA_Campaign_Dev
+  getSecretPassword
   if [ -z ${SECRET_PASSWORD+x} ]; then
     nrLicenseKey=$(echo ${encrypted_nrLicenseKey} | ${OPENSSL_BIN} enc -d -pbkdf2 -base64 -aes-256-cbc -nosalt)
     [[ $? -eq 0 ]] || { echo "Bad decryption key" | STDERR; }
@@ -7467,7 +7894,7 @@ function installffmpeg {
       if isCygwin; then
         pushd /tmp
         toggleXMLLintUse
-        local ffmpegDownloadURL="https://github.com$(curl -s https://github.com/BtbN/FFmpeg-Builds/releases | grep win64 | grep "\-gpl"  | grep -v "shared" | grep zip | head -1 | getXMLAttrVal a href)"
+        local ffmpegDownloadURL="https://github.com$(curl -s https://github.com/BtbN/FFmpeg-Builds/releases/expanded_assets/latest | grep win64 | grep "\-gpl"  | grep -v "shared" | grep zip | head -1 | getXMLAttrVal a href)"
         toggleXMLLintUse
         echo "Downloading ffmpeg windows static binaries from ${ffmpegDownloadURL}"
         download "${ffmpegDownloadURL}"
@@ -7482,24 +7909,38 @@ function installffmpeg {
       [[ "X${1,,}" != "X-q" ]] && echo "${GREEN_COL}INFO:${RESET_COL}   ffmpeg already available." && ffmpeg -version
     fi
 }
-function installgit {
-  if ! exec_command_exists git; then
+function installGit {
+  if [[ "X${1,,}" = "X-f" ]]; then
     aptS remove git
-    aptS install git
+  elif exec_command_exists git; then
+    local gitv
+    read -a gitv <<< "$(git --version | cut -d ',' -f1 | sed -r 's/^(.*?)(\s)([0-9\.]+)(\s*).*/\3/' | xargs -d '.')"
+    [[ ${gitv[0]}${gitv[1]} -lt 230 ]] && aptS remove git
   fi
-  isCygwin && git --version && return
-  pushd $CAMP_AC_ROOT/.. > /dev/null
-  sudo rm -rf git
-  git clone https://github.com/git/git.git
-  cd git
-  sudo make prefix=/usr/local install install-doc install-html install-info
-  local yn
-  read -p "Removing old/stale git version ${YELLOW_COL}$(git --version)${RESET_COL}? ([y]/n)" yn
-  [[ "X${yn,,}" != "Xn" ]] && aptS remove git
-  git --version
-  iRc=$?
-  popd
-  return $iRc
+  local isFreshInstall
+  exec_command_exists git || { aptS install git; isFreshInstall=1; }
+  exec_command_exists git && { git --version; [[ -n $isFreshInstall ]] && gitinit; true; } || { echo "${RED_COL}ALERT:${RESET_COL} Git Install Failed..."; isCygwin && return 1; }
+
+  if exec_command_exists git; then
+    local gitv
+    read -a gitv <<< "$(git --version | cut -d ',' -f1 | sed -r 's/^(.*?)(\s)([0-9\.]+)(\s*).*/\3/' | xargs -d '.')"
+    [[ ${gitv[0]}${gitv[1]} -lt 230 ]] && aptS remove git
+  fi
+  if ! exec_command_exists git; then
+    local GIT_HUB="https://github.com"
+    pushd /tmp
+    toggleXMLLintUse
+    download ${GIT_HUB}$(curl -s ${GIT_HUB}/git/git/tags | grep "/git/git/archive" | grep ".tar.gz" | getXMLAttrVal a href) /tmp/git_latest.tar.gz
+    toggleXMLLintUse
+    local gitSrcRoot=$(tar -zxvf /tmp/git_latest.tar.gz  | tail -n 1 | cut -d '/' -f1)
+    pushd ${gitSrcRoot}
+    # aptS install asciidoc
+    make prefix=/usr all # doc info
+    sudo make prefix=/usr install # install-doc install-html install-info
+    popd
+    popd
+    gitinit
+  fi
 }
 
 function installShmemTools {
@@ -7524,12 +7965,9 @@ function installShmemTools {
     aptS install util-linux
     ipcs -V && ipcrm -V
   fi
-  [[ ${1,,} =~ ^-f.* ]] && { rm -f $(which shmcat); rm -rf ${CAMP_AC_ROOT}/../shmcat; }
+  [[ ${1,,} =~ ^-f.* ]] && { rm -f $(type -P shmcat); rm -rf ${CAMP_AC_ROOT}/../shmcat; }
   if ! exec_command_exists shmcat; then
-    if ! exec_command_exists git; then
-      aptS remove git
-      aptS install git
-    fi
+    wcinstall git
     pushd ${CAMP_AC_ROOT}/.. > /dev/null
     git clone https://github.com/hardeepparmar/shmcat.git
     cd shmcat
@@ -7545,7 +7983,7 @@ function installShmemTools {
   fi
 }
 function shmclear {
-  isCygwin && { echo "${FUNCNAME[0]} Not available on $(getOS)" | STDERR || return 38; }
+  isCygwin && { echo "'${FUNCNAME[0]}' Not available on $(getOS)" | STDERR || return 38; }
   _CONTAINS -h "$@" || [[ $# -eq 0 ]] && { echo "${YELLOW_COL}Usage:${RESET_COL} ${FUNCNAME[0]} <owner-user e.g $(id -un)>"; return 1; }
   for ou in $@; do
     for shmKey in $(sudo ipcs -m | awk -v _MEMOWNER_="${ou}" '{ if($3 == _MEMOWNER_) { print $1;} }' | xargs); do
@@ -7560,11 +7998,11 @@ function shmshow {
     local shmtoolName='AccessChk'
     shmtoolName=${shmtoolName,,}
     exec_command_exists ${shmtoolName} || installShmemTools
-    exec_command_exists ${shmtoolName} || { echo "${FUNCNAME[0]} Not available on $(getOS)" | STDERR || return 38; }
+    exec_command_exists ${shmtoolName} || { echo "'${FUNCNAME[0]}' Not available on $(getOS)" | STDERR || return 38; }
     [[ $# -eq 0 ]] && ${shmtoolName} -osv -t section || ${shmtoolName} -osv -t section | grep -i '\\Nl.*Context' -A 16
     if _CONTAINS -u "$@" ; then
       exec_command_exists procexp || installShmemTools
-      exec_command_exists procexp || { echo "${FUNCNAME[0]} Not available on $(getOS)" | STDERR || return 38; }
+      exec_command_exists procexp || { echo "'${FUNCNAME[0]}' Not available on $(getOS)" | STDERR || return 38; }
       local HTTPD_PID=$(ps -e | grep httpd |  sed -r 's/[[:space:]]+/ /g' | awk '{print $4}')
       [[ ! -z ${HTTPD_PID} ]] && echo "Showing info for pid ${HTTPD_PID} ..." && launch procexp /e /s:${HTTPD_PID}
     fi
@@ -7595,9 +8033,50 @@ function installgradle {
     pushd /tmp
     download https://services.gradle.org/distributions/gradle-${gradle_version}-bin.zip
     unzip -o gradle-${gradle_version}-bin.zip
-    local cpCmd="$(which cp) -r -f -p"
+    local cpCmd="$(type -P cp) -r -f -p"
     ${cpCmd} gradle-${gradle_version}/* /usr/local/
     popd
+}
+function clipboard {
+  echo $(trim $(wps -Command Get-Clipboard))
+  [[ $# -eq 0 ]] && return
+  [[ $# -eq 1 ]] && [[ $1 = '-c' ]] && wps -Command "Set-Clipboard ''" && return
+  wps -Command "Set-Clipboard '$@'"
+}
+function setupArtifactory {
+  _MATCHES '^(-|/)(h|\?)' "$@" && echo "${YELLOW_COL}Usage:${RESET_COL}  ${FUNCNAME[0]} [ -h(elp) ] [-f(orce)] -- Sets up Artifactory access for ${YELLOW_COL}artifactory.${ADOBE_CORP_DOMAIN}${RESET_COL} and ${YELLOW_COL}artifactory-uw2.adobeitc.com${RESET_COL}" && return
+  pushd $CAMP_AC_ROOT/.. > /dev/null
+  _MATCHES '^(-|/)f' "$@" && for v in ARTIFACTORY_USER ARTIFACTORY_UW2_USER ARTIFACTORY_API_TOKEN ARTIFACTORY_API_TOKEN_UW2 ADOBE_WIKI_PAT; do cacheEnvVar -f -c $v; done
+  [ -z ${ARTIFACTORY_USER} ] && cacheEnvVar ARTIFACTORY_USER $(whoami)
+  [ -z ${ARTIFACTORY_UW2_USER} ] && cacheEnvVar ARTIFACTORY_UW2_USER $(whoami)
+  if [[ -z ${ARTIFACTORY_API_TOKEN} || -z ${ARTIFACTORY_API_TOKEN_UW2} ]]; then
+    local cbText="$(clipboard -c)"
+    wps -Command "Start-Process https://artifactory.${ADOBE_CORP_DOMAIN}/"
+    wps -Command "Start-Process https://artifactory-uw2.adobeitc.com"
+    wps -Command "Start-Process https://wiki.${ADOBE_CORP_DOMAIN}/"
+    wps -Command "Start-Process https://git.${ADOBE_CORP_DOMAIN}/"
+    read -p "After login into respective artifactories  using okta/symantec/SAML SSO in browser, Press any key here to continue." yn
+    echo "Opening user profile section of the artifactories..."
+
+    wps -Command "Start-Process https://artifactory.${ADOBE_CORP_DOMAIN}/ui/admin/artifactory/user_profile"
+    read -p "Click Copy to clipboard button in artifactory.${ADOBE_CORP_DOMAIN} browser tab and come back here to press any key in this terminal." yn
+    cacheEnvVar ARTIFACTORY_API_TOKEN "$(clipboard -c)"
+
+    wps -Command "Start-Process https://artifactory-uw2.adobeitc.com/ui/admin/artifactory/user_profile"
+    read -p "Click Copy to clipboard button in artifactory-uw2.adobeitc.com browser tab and come back to press any key in this terminal." yn
+    cacheEnvVar ARTIFACTORY_API_TOKEN_UW2 "$(clipboard -c)"
+
+    wps -Command "Start-Process https://wiki.${ADOBE_CORP_DOMAIN}/plugins/personalaccesstokens/usertokens.action"
+    read -p "Click Create Token Button in wiki.${ADOBE_CORP_DOMAIN} browser tab, enter a token name, click Create Button, Click Copy to clipboard button, Press Close and come back here to press any key in this terminal." yn
+    cacheEnvVar ADOBE_WIKI_PAT "$(clipboard -c)"
+
+    wps -Command "Start-Process https://git.${ADOBE_CORP_DOMAIN}/settings/tokens"
+    read -p "Click Generate New Token Button on git.${ADOBE_CORP_DOMAIN} browser tab, enter a token name, click Generate token button at bottom of page, Click Copy to clipboard button, Press Close and come back here to press any key in this terminal." yn
+    cacheEnvVar ADOBE_GIT_PAT "$(clipboard -c)"
+
+    clipboard "${cbText}" > /dev/null # restore original clipboard content.
+  fi
+  popd > /dev/null
 }
 function setup_perf_stk {
   _CONTAINS -h "$@" && echo "${YELLOW_COL}Usage:${RESET_COL}  ${FUNCNAME[0]} [ -h(elp) | -i(setup integro)] -- Installs perf_stk and integro " && return
@@ -7606,7 +8085,7 @@ function setup_perf_stk {
     wcinstall maven $@
     local testNG_version='7.0.0'
     local testNG=testng-${testNG_version}.jar
-    local jmeter_version='5.5'
+    local jmeter_version='5.6.3'
     download https://repo1.maven.org/maven2/org/testng/testng/${testNG_version}/${testNG} /usr/local/lib/${testNG}
     mvn clean
     pushd $CAMP_AC_ROOT/..
@@ -7625,20 +8104,7 @@ function setup_perf_stk {
     git rm -rf --cached .
     git reset --hard HEAD
     popd
-    [ -z ${ARTIFACTORY_USER} ] && cacheEnvVar ARTIFACTORY_USER $(whoami)
-    [ -z ${ARTIFACTORY_UW2_USER} ] && cacheEnvVar ARTIFACTORY_UW2_USER $(whoami)
-    if [[ -z ${ARTIFACTORY_API_TOKEN} || -z ${ARTIFACTORY_API_TOKEN_UW2} ]]; then
-      wps -Command "Start-Process https://artifactory.${ADOBE_CORP_DOMAIN}/"
-      wps -Command "Start-Process https://artifactory-uw2.adobeitc.com"
-      read -p "After login into respective artifactories  using okta/symantec/SAML SSO in browser, Press any key here to continue." yn
-      echo "Opening user profile section of the artifactories..."
-      wps -Command "Start-Process https://artifactory.${ADOBE_CORP_DOMAIN}/ui/admin/artifactory/user_profile"
-      read -p "Click on Copy to clipboard button in artifactory.${ADOBE_CORP_DOMAIN} browser tab and come back here to press any key in this terminal." yn
-      cacheEnvVar ARTIFACTORY_API_TOKEN $(getCmdValue "wps -Command Get-Clipboard")
-      wps -Command "Start-Process https://artifactory-uw2.adobeitc.com/ui/admin/artifactory/user_profile"
-      read -p "Click on Copy to clipboard button in artifactory-uw2.adobeitc.com browser tab and come back to press any key in this terminal." yn
-      cacheEnvVar ARTIFACTORY_API_TOKEN_UW2 $(getCmdValue "wps -Command Get-Clipboard")
-    fi
+    wcinstall artifactory
     popd
     if isCygwin; then
         exec_command_exists idea64 || wcinstall intelliJ
@@ -7647,7 +8113,7 @@ function setup_perf_stk {
     fi
     pushd $CAMP_AC_ROOT/../${PERF_GIT_REPO}
     TERM=cygwin ./gradlew clean buildJar
-    local cpCmd="$(which cp) -f -p"
+    local cpCmd="$(type -P cp) -f -p"
     ${cpCmd} ./build/libs/perf-stk-acc-jar-with-dependencies.jar /usr/local/lib/
     popd
 # Setup and compile integro.
@@ -7680,69 +8146,32 @@ function runperftests {
     fi
 }
 function installVisualStudio {
-  isCygwin || { echo "${FUNCNAME[0]} Not available on $(getOS)" | STDERR || return $?; }
-  _CONTAINS -h "$@" && echo "${YELLOW_COL}Usage:${RESET_COL}  ${FUNCNAME[0]} [ -h(elp) -f(force) | 2019 | 2022 ] -- Installs Visual studio Professional edition." && return
-  if isDevToolAvailable && ! _CONTAINS -f "$@"; then
+  isCygwin || { echo "'${FUNCNAME[0]}' Not available on $(getOS)" | STDERR || return $?; }
+  _CONTAINS -h "$@" && echo "${YELLOW_COL}Usage:${RESET_COL}  ${FUNCNAME[0]} [ -h(elp) [-r(epair) | -m(odify) | -u(pdate)] | 2019 | 2022 ] -- Installs Visual studio Professional edition." && return
+  local option
+  _CONTAINS -r "$@" && shift && option=repair
+  _CONTAINS -u "$@" && shift && option=update
+  if isDevToolAvailable && [[ -z $option ]]; then
     echo "${GREEN_COL}INFO:${RESET_COL}   $(getIDEVersion) already installed on this machine."
     return
   fi
-  if _CONTAINS 2019 "$@"; then
-    cp $(readlink.exe -f $TEAM_SHARE_LOCATION)/vs_*.exe . # /L
-    local installer=$(find . -maxdepth 1 -iname vs_*.exe)
-    chmod +x "${installer}"
-    launch "${installer}" -?
-    launch "${installer}"
-    return
-  fi
-  if _CONTAINS 2022 "$@"; then
-    cp $(readlink.exe -f $TEAM_SHARE_LOCATION)/VisualStudioSetup.exe . # /L
-    local installer='./VisualStudioSetup.exe'
-    chmod +x "${installer}"
-    launch VisualStudioSetup.exe -?
-    launch VisualStudioSetup.exe
-    return
-  fi
-  function TurnOffVSComponent {
-    sed -r -i "s/(^.*<SelectableItemCustomization.*$1.*)Selected=\"yes\"(.*)/\1Selected=\"no\"\2/g" AdminDeployment.xml
-  }
+  local version=2019
+  [[ -z "$@" ]] || version=$(echo "$@" | sed -r 's,[^[:digit:]],,g')
   pushd /tmp
-  cp $(readlink.exe -f $TEAM_SHARE_LOCATION)/Visual_Studio_2012_update_5_x86.iso . # /L
-  local vsinstalliso=$(getPlatformPath)$(find . -iname "*Visual*Studio*2012*.iso" -a -not -iname "*update*" -printf "%f")
-  vsinstalliso=$(echo $vsinstalliso | sed 's/\\/\\\\/g')
-  local mntcmd="(Mount-Diskimage -ImagePath  $vsinstalliso | Get-Volume).DriveLetter"
-  local mntDrive=$(getCmdValue "wps -Command $mntcmd")
-  cp /cygdrive/$mntDrive/AdminDeployment.xml .
-  TurnOffVSComponent WebTools
-  TurnOffVSComponent OfficeTools
-  TurnOffVSComponent SharepointTools
-  TurnOffVSComponent LightSwitch
-  TurnOffVSComponent SilverLight_Developer_Kit
-  TurnOffVSComponent SQL
-  TurnOffVSComponent Blend
-  pushd /cygdrive/$mntDrive
-  local wp=$(getCmdValue "getPlatformPath /tmp")
-  wp=${wp}AdminDeployment.xml
-  wp=$(echo $wp | sed 's|\\|\\\\|g')
-  ./vs_professional.exe /AdminFile $wp
-  mntcmd="Dismount-DiskImage -ImagePath $vsinstalliso"
-  wps -Command $mntcmd
-  echo "Finished Installing Visual Studio (Basic...)"
-  popd
-  echo "Installing Visual Studio update..."
-  vsinstalliso=$(getPlatformPath)$(find . -iname "*Visual*Studio*2012*.iso" -a -iname "*update*" -printf "%f")
-  vsinstalliso=$(echo $vsinstalliso | sed 's/\\/\\\\/g')
-  local mntcmd="(Mount-Diskimage -ImagePath  $vsinstalliso | Get-Volume).DriveLetter"
-  local mntDrive=$(getCmdValue "wps -Command $mntcmd")
-  pushd /cygdrive/$mntDrive
-  $(find . -maxdepth 1 -name "*.exe" | head -n 1) /Full
-  echo "Finished Installing Visual Studio Update..."
-  mntcmd="Dismount-DiskImage -ImagePath $vsinstalliso"
-  wps -Command $mntcmd
-  refreshEnvPath_Windows
+  download https://aka.ms/vs/17/release/vc_redist.x64.exe
+  download https://aka.ms/vs/17/release/vc_redist.x86.exe
+  [[ -z $option ]] && { ./vc_redist.x64.exe /install; vc_redist.x86.exe /install; true; } || { ./vc_redist.x64.exe /repair; ./vc_redist.x86.exe /repair; }
+  echo "Installing Visual studio verison $version"
+  \cp -f -p $(readlink.exe -f $TEAM_SHARE_LOCATION)/VisualStudio_*.exe . # /L
+  local installer=$(find . -maxdepth 1 -iname "VisualStudio_*.exe" | grep $version | sort -r | head -n 1)
+  [[ -z $installer ]] && echo "Visual studio installer not found" && return 1
+  chmod 755 "${installer}"
+  launch "${installer}" -?
+  launch "${installer}" ${option}
   popd
 }
 function installTesseract {
-  isCygwin || { echo "${FUNCNAME[0]} Not available on $(getOS)" | STDERR || return $?; }
+  isCygwin || { echo "'${FUNCNAME[0]}' Not available on $(getOS)" | STDERR || return $?; }
   if ! exec_command_exists tesseract || [ "X${1,,}" = "X-f" ]; then
     local yn
     read -p "${YELLOW_COL}WARN:${RESET_COL} You must have windows port of  python(and pip installed. Cygwin python would not work. Uninstall it and remove /usr/bin/pip.. Do you want to continue? ([y]/n) " yn
@@ -7766,7 +8195,7 @@ function installTesseract {
   fi
 }
 function installDebian9 {
-  isCygwin || { echo "${FUNCNAME[0]} Not available on $(getOS)" | STDERR || return $?; }
+  isCygwin || { echo "'${FUNCNAME[0]}' Not available on $(getOS)" | STDERR || return $?; }
   local iRc
   if ! exec_command_exists wsl; then
     iRc=$(getCmdValue "wps -Command '(Get-WindowsOptionalFeature -Online -FeatureName Microsoft-Windows-Subsystem-Linux).state'")
@@ -7824,7 +8253,7 @@ function installDebian9 {
   gpupdate /force
   local restart_WSL_VM_Services_Cmd='Restart-Service vmms; Restart-Service vmcompute;'
   # Get-Service vm* | Where-Object { $_.Status -cne 'Running' }
-  wps -Command "Start-Process $PWSHELL  -ArgumentList '-Command \"${restart_WSL_VM_Services_Cmd}\"' -Verb RunAs"
+  wps -Command "Start-Process $PWSHELL  -ArgumentList '-Command \"${restart_WSL_VM_Services_Cmd}\"' -Wait -Verb RunAs"
 #  wps -Command "[Environment]::SetEnvironmentVariable('WSLENV', 'CAMP_AC_ROOT/pu', 'Machine')"
 }
 function installStandardCampaignPackages {
@@ -7906,15 +8335,44 @@ function getValidCampaignURL {
     echo ${url}
     return $iRc
 }
+function configureAdobeEmailServer {
+  local isAdobeSMTP=true
+  [[ X$1 = X'-' ]] && shift && isAdobeSMTP=false
+  _MATCHES '^(-|/)(h|\?)' "$@" || [[ $# -eq 0 ]] && echo "${YELLOW_COL}Usage:${RESET_COL} ${FUNCNAME[0]} [-h(elp)] <instance-names...> | '*'(all instances)" && return
+
+  local rlycinPass adb_smtpUser base64_enc_smtpCreds
+  if [[ ${isAdobeSMTP} = true ]]; then
+    rlycinPass=$(getVaultCreds bashrc | grep bashrc | awk '{print $2;}' | jq -r .rlycin)
+    [[ -z ${rlycinPass} ]] && echo "ALERT: Error fetching password for 'rlycin' from vault" | STDERR
+    updateXMLAttr "$(getCampRoot)/nl/build/ncs/conf/serverConf.xml" relay address "authrelay.${ADOBE_CORP_DOMAIN}"
+    updateXMLAttr "$(getCampRoot)/nl/build/ncs/conf/serverConf.xml" relay port 587
+    adb_smtpUser="rlycin@${ADOBE_DOMAIN}"
+    base64_enc_smtpCreds=$(echo -ne "\0${adb_smtpUser}\0${rlycinPass}" | base64)
+  else
+    updateXMLAttr "$(getCampRoot)/nl/build/ncs/conf/serverConf.xml" relay address ""
+    updateXMLAttr "$(getCampRoot)/nl/build/ncs/conf/serverConf.xml" relay port 25
+  fi
+  set -f
+  for i in $@; do
+    set +f
+    local instance_Config_Files=$(getCampRoot)/nl/build/ncs/conf/config-$i.xml
+    for f in ${instance_Config_Files}; do
+      if [[ -e $f ]]; then
+        updateXMLAttr $f IP authentication "${base64_enc_smtpCreds}"
+        updateXMLAttr $f smtp enableTLS ${isAdobeSMTP}
+      fi
+    done
+  done
+}
 function setupCampaignDevServer {
-  if [ -z "$1" ]; then
+  if _MATCHES '^(-|/)(h|\?)' "$@" || [[ $# -eq 0 ]]; then
     echo "${YELLOW_COL}Usage:${RESET_COL} ${FUNCNAME[0]} <instance_idenitifer1> <instance_idenitifer2> ... Instance identifiers could be JIRA/BUG ID or a branch name e.t.c."
     echo "if instance_idenitifer has ${YELLOW_COL}mid${RESET_COL} in its name it will create mid sourcing instance."
     echo "if instance_idenitifer has ${YELLOW_COL}mkt${RESET_COL} in its name it will create marketing instance and configure it to connect to user specified mid-sourcing server."
     echo "if instance_idenitifer has ${YELLOW_COL}trk/track${RESET_COL} in its name it will create configure tracking on the specific mid or mkt instance. Mid will have a a new tracking demaon running on it while mkt will have tracking enabled in delivery on it."
     echo "if instance_idenitifer has ${YELLOW_COL}sms/smpp/mob${RESET_COL} in its name it will create configure SMS delivery."
     echo "if instance_idenitifer has ${YELLOW_COL}prod${RESET_COL} in its name it use IMS prod config else it will use IMS stage."
-    echo "It is advised to specify ${YELLOW_COL}mid${RESET_COL} before ${YELLOW_COL}mkt${RESET_COL} instance in command line arguments since mkt will need to have mid specified, which is up and running."
+    echo "It is advised to specify ${YELLOW_COL}mid${RESET_COL} before ${YELLOW_COL}mkt${RESET_COL} instance in command line arguments since mkt will need to have mid specified, which should be up and running."
     return 1
   fi
 
@@ -7934,10 +8392,16 @@ function setupCampaignDevServer {
   fi
   [[ -z $multipleInstances ]] || genSSLCerts 2 "*.$(hostname -d)"
   local l_dbHost l_dbport l_fqdn=$(hostname --fqdn)
-  getDatabaseType
+  getDatabaseType ${PGPASSWORD:=${DEFAULT_PASSWORD}}
   [[ ! -z ${DBMS_TYPE} ]] || { echo "ALERT: Error fetching Database connection info" | STDERR || return $?; }
-  [[ ! -z ${PGPORT} ]] && l_dbport=":${PGPORT}"
+  l_dbport=":${DB_SERVER#*:}"
+  if [[ ${l_dbport} = ":${DB_SERVER}" ]]; then
+    export PGPORT=${PGPORT:=5432}
+    l_dbport=":${PGPORT}"
+  fi
   [[ $DB_SERVER =~ ([^:]+)[:]?(.*) ]] && l_dbHost=${BASH_REMATCH[1]//[[:space:]]/}
+
+
   if [ "X${l_dbHost}" = "X${l_fqdn}"  ]; then
     isCygwin || { echo "PostgreSQL server on WSL distro is not supported as yet on $(getOS).. Specify server as value of env variable DB_SERVER in ~/.before.sh" | STDERR || return $?; }
     if [ "X${DBMS_TYPE}" = X"PostgreSQL" ]; then
@@ -7968,7 +8432,7 @@ function setupCampaignDevServer {
           return 4
         fi
       else
-        echo ""
+        echo
       fi
       stopCampaign
       local postgresInstallRoot="$(dirname "$(dirname "${postgresExePath}")")"
@@ -8060,7 +8524,7 @@ function setupCampaignDevServer {
       wps -Command "Set-Clipboard -Value '${midURL##*//}'" && echo "${GREEN_COL}INFO:${RESET_COL} ${YELLOW_COL}${midURL##*//}${RESET_COL} copied to your clipboard ..."
       [[ ! -z $(echo ${id} | grep -i mkt | grep -i "trk\|track") ]] && trkURL=$(getValidCampaignURL tracking trk)
       if [[ ! -z ${trkURL} ]]; then
-        trk_inst=$(soap_rtest ${trkURL} 2>/dev/null | getXMLAttrVal redir instance)
+        trk_inst=$(soap_rtest ${trkURL} 2>/dev/null | xmlize | getXMLAttrVal redir instance)
         trk_inst=${trk_inst:=${CAMP_INST_NAME}}
       fi
       stopCampaign
@@ -8120,24 +8584,15 @@ function setupCampaignDevServer {
       updateXMLAttr "$(getCampRoot)/nl/build/ncs/conf/serverConf.xml" relay address "momentum-dev.${ADOBE_CORP_DOMAIN}"
       updateXMLAttr "$(getCampRoot)/nl/build/ncs/conf/serverConf.xml" relay port 25
       updateXMLAttr "$(getCampRoot)/nl/build/ncs/conf/config-${CAMP_INST_NAME}.xml" mta useMomentum true
+      updateXMLAttr "$(getCampRoot)/nl/build/ncs/conf/config-${CAMP_INST_NAME}.xml" smtp enableTLS true
     else
-      updateXMLAttr "$(getCampRoot)/nl/build/ncs/conf/serverConf.xml" relay address "authrelay.${ADOBE_CORP_DOMAIN}"
-      updateXMLAttr "$(getCampRoot)/nl/build/ncs/conf/serverConf.xml" relay port 587
       # updateXMLAttr "$(getCampRoot)/nl/build/ncs/conf/serverConf.xml" relay address "inner-relay-1.${ADOBE_CORP_DOMAIN}"
-      local base64_encoded_rlyuser_name_and_password;
-      adb_smtpUser="rlycin@${ADOBE_DOMAIN}"
-      if [[ -z ${SECRET_PASSWORD+x} ]]; then
-        base64_encoded_rlyuser_name_and_password="AHJseWNpbkBhZG9iZS5jb20AI25scGFzcyNubHBhc3MjbmxwYXNz";
-      else
-        base64_encoded_rlyuser_name_and_password=$(echo -ne "\0${adb_smtpUser}\0${SECRET_PASSWORD}${SECRET_PASSWORD}${SECRET_PASSWORD}" | base64)
-      fi
-      updateXMLAttr "$(getCampRoot)/nl/build/ncs/conf/config-${CAMP_INST_NAME}.xml" IP authentication "${base64_encoded_rlyuser_name_and_password}"
+      configureAdobeEmailServer ${CAMP_INST_NAME}
     fi
     updateXMLAttr "$(getCampRoot)/nl/build/ncs/conf/serverConf.xml" inMail popTimeoutSec 30
     updateXMLAttr "$(getCampRoot)/nl/build/ncs/conf/serverConf.xml" inMail reloadPeriodSec 60
     updateXMLAttr "$(getCampRoot)/nl/build/ncs/conf/config-${CAMP_INST_NAME}.xml" inMail autoStart false
     updateXMLAttr "$(getCampRoot)/nl/build/ncs/conf/config-${CAMP_INST_NAME}.xml" mta statServerAddress ${l_fqdn}:$[$idx+7777]
-    updateXMLAttr "$(getCampRoot)/nl/build/ncs/conf/config-${CAMP_INST_NAME}.xml" smtp enableTLS true
     updateXMLAttr "$(getCampRoot)/nl/build/ncs/conf/config-${CAMP_INST_NAME}.xml" IP heloHost ${l_fqdn}
     updateXMLAttr "$(getCampRoot)/nl/build/ncs/conf/config-${CAMP_INST_NAME}.xml" IP address 0.0.0.0
     updateXMLAttr "$(getCampRoot)/nl/build/ncs/conf/config-${CAMP_INST_NAME}.xml" IP publicId 1
@@ -8151,8 +8606,8 @@ function setupCampaignDevServer {
       updateXMLAttr "$(getCampRoot)/nl/build/ncs/conf/config-${CAMP_INST_NAME}.xml" sms args " -verbose -tracefilter:wdbc"
     fi
     # Ref C:\campaign\ac\nl\build\serverconf\serverconfinfo.h for provider types.
-    if   [[ "X${DBMS_TYPE}" = X"PostgreSQL" ]]; then
-      nls config -instance:${CAMP_INST_NAME} -createdb -admincnx:[postgres/${PGPASSWORD}] -cnx:[PostgreSQL:postgres:${CAMP_DB_NAME}/${PGPASSWORD}@${l_dbHost}${l_dbport},timezone='Asia/Kolkata',unicodeData=true,usetimestamptz=true] -packages:[nms:core,nms:campaign,nms:macIntegration,nms:aamIntegration${additionalPkgs}] -internalpwd:${PGPASSWORD}
+    if [[ "X${DBMS_TYPE}" = X"PostgreSQL" ]]; then
+      nls config -instance:${CAMP_INST_NAME} -createdb -admincnx:[${PGUSER}/${PGPASSWORD}] -cnx:[PostgreSQL:${PGUSER}:${CAMP_DB_NAME}/${PGPASSWORD}@${l_dbHost}${l_dbport},timezone='Asia/Kolkata',unicodeData=true,usetimestamptz=true] -packages:[nms:core,nms:campaign,nms:macIntegration,nms:aamIntegration${additionalPkgs}] -internalpwd:${DEFAULT_PASSWORD}
     elif [[ "X${DBMS_TYPE}" = X"MSSQL" ]]; then
       local option="-createuser"
       csql -u postgres -d master -V
@@ -8201,7 +8656,7 @@ function setupCampaignDevServer {
     csql -d $CAMP_DB_NAME -c "delete from xtkoption where sname ='XtkSecurity_Unsafe_DecryptString'"
     csql -d $CAMP_DB_NAME -c "insert into xtkoption(sname,sstringvalue,idatatype,ilongvalue, ioptionid,tscreated,tslastmodified,tstimestampvalue) values ('XtkSecurity_Unsafe_DecryptString', '1',                     3,1,${xtkOptID},now(),now(),now())"  && xtkOptID=$[$xtkOptID+1]
     csql -d $CAMP_DB_NAME -c "create extension IF NOT EXISTS pgcrypto"
-
+    getSecretPassword
     if ! isCygwin; then
       echo "Configuring campaign instance ${CAMP_INST_NAME} for new relic support."
       local nrLicenseKey nrLicenseKey2
@@ -8315,7 +8770,7 @@ function setupCampaignDevServer {
 function startCampaign {
   _CONTAINS -h "$@" && echo "${YELLOW_COL}Usage:${RESET_COL}  ${FUNCNAME[0]} [ -h(elp) | -u(perform force postupgrade) | -b(launch acc in background window) -f(do not check if campaign is already running)]" && return
   pushd ${NL_DBG_BIN_DIR} > /dev/null
-  ps | grep $(which nlserver)
+  ps | grep $(type -P nlserver)
   if [ $? -eq 0 ]  && ! _CONTAINS -f "$@" ; then
     echo "Campaign nlserver already running in one of the open cygwin terms. Close that campaign first via ${BOLD}stopCampaign." | STDERR
     popd > /dev/null
@@ -8330,7 +8785,7 @@ function startCampaign {
   [[ -z $smtpRelayPort ]] || [[ -z $smtpRelayServer ]] || ! isPortListening $smtpRelayPort $smtpRelayServer && { echo "Mailserver not configured. There may be issues sending deliveries." | STDERR; }
   [[ ! -z $(getCampaignInstance) ]] || { echo "No campaign instance found" | STDERR; return $?; }
   [[ ! -z $(getCampInstances | xargs) ]] || { echo "No database associated with campaign instance $(getCampaignInstance).Will launch only web module" | STDWARN; ( nls web & ); return 0; }
-  isHostAlive ${DB_SERVER} || { getDatabaseType; echo "ALERT: Error fetching Database connection info from ${YELLOW_COL}${DB_SERVER}${RESET_COL}" | STDERR || return $?; }
+  isHostAlive ${DB_SERVER} || { getDatabaseType ${PGPASSWORD:=${DEFAULT_PASSWORD}}; echo "ALERT: Error fetching Database connection info from ${YELLOW_COL}${DB_SERVER}${RESET_COL}" | STDERR || return $?; }
   if _CONTAINS -u "$@" ; then
     for inst in $(getCampInstances); do
       nls config -postupgrade -instance:${inst} -force
@@ -8349,6 +8804,7 @@ function startCampaign {
   [[ 0 -ne $(expr $(sudo find /root/.appdata -iname '.shm*' 2> /dev/null | wc -l) + $(sudo find /.appdata -iname '.shm*' 2> /dev/null | wc -l)
 ) ]] && echo "ALERT: Shared mem lock files found in multiple places can cause tracking issues." | STDERR; }
   local watchdogOptions=()
+  updateXMLAttr "$(getCampRoot)/nl/build/ncs/conf/serverConf.xml" dnsConfig nameServers "$(getDNSList)"
   if [[ $# -gt 0 ]]; then
     local optionList="$(nlserver watchdog -h | grep -E '^-[[:alnum:]]+' | awk '{print $1;}' | xargs)"
     for o in $@; do
@@ -8369,9 +8825,9 @@ function startCampaign {
       if [ $(getCmdValue "wps  -Command '(Get-Service W3SVC* | measure).Count'") -ne 0 ]; then
         echo "Turning off Windows IIS Web service...Apache to be used instead."
         local stop_IIS_Web_Service_Cmd="-Command Stop-Service W3SVC"
-        wps -Command "Start-Process $PWSHELL  -ArgumentList \"${stop_IIS_Web_Service_Cmd}\" -WindowStyle hidden -Verb RunAs"
+        wps -Command "Start-Process $PWSHELL  -ArgumentList \"${stop_IIS_Web_Service_Cmd}\" -Wait -WindowStyle hidden -Verb RunAs"
         local disable_IIS_Web_Service_Cmd="-Command Set-Service W3SVC -StartupType Disabled"
-        wps -Command "Start-Process $PWSHELL  -ArgumentList \"${disable_IIS_Web_Service_Cmd}\" -WindowStyle hidden -Verb RunAs"
+        wps -Command "Start-Process $PWSHELL  -ArgumentList \"${disable_IIS_Web_Service_Cmd}\" -Wait -WindowStyle hidden -Verb RunAs"
       fi
       apache start
     else
@@ -8416,7 +8872,7 @@ function cauterizeInstance {
   local backUpDir=$(getBackupLocation '')
   echo "${GREEN_COL}INFO:${RESET_COL} Back-up campaign config file(s) to ${backUpDir} folder."
   mkdir -p ${backUpDir}
-  local cpCmd="$(which cp) -i -p -v "
+  local cpCmd="$(type -P cp) -i -p -v "
   ${cpCmd} $(getCampRoot)/nl/build/ncs/conf/*.xml ${backUpDir}/
   echo "Updating instance config $(getCampRoot)/nl/build/ncs/conf/config-${l_instance}.xml"
   updateXMLAttr "$(getCampRoot)/nl/build/ncs/conf/config-${l_instance}.xml" dataStore hosts "${l_dbHost}\*"
@@ -8447,6 +8903,112 @@ function cauterizeInstance {
   export PGDATABASE=${l_dbname}
   export PGUSER=${l_dbUser}
   csql -V
+}
+
+function createArtifact {
+  local ARTIFACT_ROOT='/tmp/artifact'
+  local ARTIFACT_NAME=${1}
+  shift
+  echo "Pickup assets from locations specified...(Use file:///usr/local/bin/f2py to specify local disk file)"
+  local urls=()
+  for u in $@; do
+    urls+=(${u})
+  done
+  if [[ -z ${ARTIFACT_NAME} ]] ; then
+    urls+=('https://eu.altcha.org/js/latest/altcha.min.js altcha.js');
+    urls+=('https://unpkg.com/better-scroll@2.5.0/dist/better-scroll.js')
+    urls+=('https://code.jquery.com/jquery-3.7.1.js')
+    urls+=('https://code.jquery.com/jquery-3.7.1.min.js')
+    urls+=('https://code.jquery.com/ui/1.13.3/jquery-ui.js')
+    urls+=('https://code.jquery.com/ui/1.13.3/jquery-ui.min.js')
+    urls+=('https://code.jquery.com/jquery-migrate-3.4.1.js')
+    urls+=('https://code.jquery.com/jquery-migrate-3.4.1.min.js')
+    urls+=('https://jqueryui.com/resources/download/jquery-ui-1.13.3.zip')
+    urls+=('https://jqueryui.com/resources/download/jquery-ui-1.10.2.zip jquery-ui-1.10.2.zip e')
+    urls+=('https://github.com/jquery-ui-bootstrap/jquery-ui-bootstrap/archive/refs/tags/v0.23.zip jquery-ui-bootstrap-v0.23.zip')
+    urls+=('https://code.jquery.com/jquery-1.12.0.js')
+    urls+=('https://code.jquery.com/jquery-1.12.0.min.js')
+    urls+=('https://code.jquery.com/jquery-migrate-1.4.1.js')
+    urls+=('https://code.jquery.com/jquery-migrate-1.4.1.min.js')
+    ARTIFACT_NAME='thirdparty_js'
+  fi
+
+  echo "Binary File types"
+  local binFileExts=()
+  binFileExts+=('7z')
+  binFileExts+=('gz')
+  binFileExts+=('jp')  # includes JPEG, JPG e.t.c.
+  binFileExts+=('bmp')
+  binFileExts+=('png')
+  binFileExts+=('ico')
+  binFileExts+=('tar')
+  binFileExts+=('tgz')
+  binFileExts+=('zip')
+  echo "${binFileExts[*]}";
+
+  echo "File types to encode into UTF-8 BOM"
+  local txtFileExts=()
+  txtFileExts+=('css')
+  txtFileExts+=('htm') # includes html, html5
+  txtFileExts+=('txt')
+  txtFileExts+=('xml')
+  txtFileExts+=('xsl') # includes xslt
+  txtFileExts+=('js')  # includes json
+  txtFileExts+=('md')
+  txtFileExts+=('py')
+  txtFileExts+=('sh')
+  echo "${txtFileExts[*]}";
+
+  local minExtLenBin=$(echo "${binFileExts[*]}" | xargs -n 1 | awk '{print length;}' | sort -n | head -n 1)
+  local minExtLenTxt=$(echo "${txtFileExts[*]}" | xargs -n 1 | awk '{print length;}' | sort -n | head -n 1)
+
+
+  \rm -rf ${ARTIFACT_ROOT} ${ARTIFACT_ROOT}.tgz;
+  mkdir ${ARTIFACT_ROOT};
+  pushd ${ARTIFACT_ROOT};
+  echo '#!/bin/bash' > ${FUNCNAME[0]}.sh
+  echo -ne "function " >> ${FUNCNAME[0]}.sh
+  declare -f ${FUNCNAME[0]} >> ${FUNCNAME[0]}.sh
+  echo ${FUNCNAME[0]} >> ${FUNCNAME[0]}.sh
+    for entry in "${urls[@]}"; do
+        local u=$(echo $entry | awk '{print $1;}');
+        local f=$(echo $entry | awk '{print $2;}');
+        local extract=$(echo $entry | awk '{print $3;}');
+        extract=${extract,,};
+        [[ -z $f ]] && f=${u##*/};
+        local proto
+        [[ $u =~ ^[[:space:]]*([^:/]+)[:/]{2,} ]] && proto=${BASH_REMATCH[1]}
+        [[ ${proto,,} = 'file' ]] || [[ $u =~ ^.*[[:digit:]]\..*$ ]] || echo "'$u' is being used to fetch 'latest' available content. Please DO-TEST  acc-code/components affected by '$f' if it has changed.";
+        local ext=${f##*.};
+        ext=${ext,,};
+        curl -s -L "${u}" -o $f && echo "Saving $f";
+        if [[ "X${extract:0:1}" = "Xe" ]]; then
+            [[ $ext = 'zip' ]] && unzip -o  $f;
+            [[ $ext = 'tar' ]] && tar -xvf  $f;
+            [[ $ext = 'tgz' ]] && tar -zxvf $f;
+            if [[ $ext = 'gz'  ]]; then
+                [[ -z ${f##*.tar.gz} ]] && { tar -zxvf $f; true; } || gunzip -f -k -r $f;
+            fi
+        fi
+    done;
+    for f in $(find ${ARTIFACT_ROOT} -type f); do
+        local ext=${f##*.};
+        if [[ " ${txtFileExts[*]} " =~ [[:space:]]${ext:0:${minExtLenTxt}}[[:alnum:]]*[[:space:]] ]]; then
+            vim -Es +"set bomb | set fenc=utf8 | wq!" $f && echo "Saving $f as text file with UTF-8 BOM encoding";
+        fi
+    done;
+    popd;
+# tar --format=gnu --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner cvzf /tmp/artifact.tgz -C /tmp/artifact .
+  tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner --pax-option=exthdr.name=%d/PaxHeaders/%f,delete=atime,delete=ctime,delete=btime,delete=mtime -cvzf ${ARTIFACT_ROOT}.tgz -C ${ARTIFACT_ROOT} .;
+  if [[ -e ${ARTIFACT_ROOT}.tgz ]]; then
+      pushd ${ARTIFACT_ROOT%/*};
+      local sha1=$(openssl dgst -sha1 ${ARTIFACT_ROOT##*/}.tgz | awk '{print $2;}' | tr -d -c '[:alnum:]');
+      \mv -f ${ARTIFACT_ROOT}.tgz /tmp/${ARTIFACT_NAME}_${sha1}.tgz;
+      echo "Artifact created : /tmp/${ARTIFACT_NAME}_${sha1}.tgz";
+      popd;
+      return 0;
+  fi;
+  return 1
 }
 
 function debug {
@@ -8533,10 +9095,10 @@ function review {
 
 function ediff {
   # Define this in your environment variables in order to override.
-  isCygwin || { echo "${FUNCNAME[0]} Not available on $(getOS)" | STDERR || return $?; }
+  isCygwin || { echo "'${FUNCNAME[0]}' Not available on $(getOS)" | STDERR || return $?; }
   export GUI_DIFF_TOOL_NAME=${GUI_DIFF_TOOL_NAME:=Examdiff.exe}
   _CONTAINS -h "$@" && git diff -h 2>&1 | sed "s/git diff/${FUNCNAME[0]}/g" && return
-  # print last argument which most likely is the filename.
+  # print last argument, which is most likely, the filename.
   if [ $# -gt 0 ]; then
     if isCygwin; then
       cygpath -w $(readlink -f "${@:$#:$#}")
@@ -8591,6 +9153,7 @@ function ediff {
   git difftool -y --extcmd=${my_diff_tool_wrapper} "$@" &
 }
 function openSolutionInIDE {
+  isCygwin || { echo "'${FUNCNAME[0]}' Not available on $(getOS)" | STDERR || return $?; }
   pushd -n . > /dev/null
   cd $CAMP_AC_ROOT/nl
   [[ "X${1:0:2}" = "X-j" ]] && exec_command_exists idea64 && launch idea64 && return
@@ -8633,25 +9196,479 @@ function containers {
   done
   [[ $count -ne 0 ]] && echo $count || { soap_rtest $1 > /tmp/soap_rtest 2>&1; iRc=$?; touch /tmp/soap_rtest; [[ $iRc -eq 0 ]] && grep "<redir" /tmp/soap_rtest && iRc=0; iRc=$?; return $iRc; }
 }
+function installRemote {
+  alias h=history
+  alias c=clear
+  alias thread='ps huH p'
+  export LS_OPTIONS='--color=auto'
+  eval "$(dircolors)"
+  alias ls='ls $LS_OPTIONS'
+  alias ll='ls $LS_OPTIONS -l'
+  alias l='ls $LS_OPTIONS -lA'
+  export RED_COL=$(tput setaf 1)
+  export GREEN_COL=$(tput setaf 2)
+  export YELLOW_COL=$(tput setaf 3)
+  export BLUE_COL=$(tput setaf 4)
+  export MAGNETA_COL=$(tput setaf 5)
+  export CYAN_COL=$(tput setaf 6)
+  export WHITE_COL=$(tput setaf $[7+8]) # White of higher octave.
+  export GREY_COL=$(tput setaf 8)
+  export SAFFRON_COL=$(tput setaf 208)
+  export BOLD=$(tput bold)
+  export RESET_COL=$(tput sgr0)
+  export HISTTIMEFORMAT='%d-%m %H:%M '
+  export CAMP_AC_ROOT='/usr/local/neolane/nl6'
+  # Count number of files in a directory , 0 if it is not a directory
+  function fCount {
+    function __count { echo $#; }
+    (shopt -s nullglob; __count $1/*)
+  }
+
+  function _KEY_HAS_VALUE {
+    local searchKey=$1
+    [[ -z ${searchKey} ]] && return 2;
+    shift
+    for idx in $(seq 1 1 $#); do
+      if [[ "X${1,,}" = "X${searchKey}" ]];  then
+        echo $2
+        return 0
+      fi
+      shift
+    done
+    return 1;
+  }
+  function _CONTAINS {
+    local searchKey=$1
+    [[ -z ${searchKey} ]] && false && return
+    shift
+    for i in "$@"; do
+      if [[ "X${i,,}" = "X${searchKey}" ]];  then
+        true
+        return
+      fi
+    done
+    false
+  }
+
+  function _MATCHES {
+    local searchKey=$1
+    [[ -z ${searchKey} ]] && false && return
+    shift
+    for i in "$@"; do
+      if [[ "${i,,}" =~ ${searchKey} ]];  then
+        true
+        return
+      fi
+    done
+    false
+  }
+
+  function getCampRoot { echo $CAMP_AC_ROOT; }
+  function getCampaignInstance {
+    pushd . > /dev/null
+    2conf
+    find . -maxdepth 1 -iname "config-*.xml" -exec ls -1S "{}" + | grep -v default | head -1 | rev | cut -d '/' -f1 | rev | sed -r 's/^config-//g' | sed -E 's/\.xml$//g' | grep -E --color=never "[[:alnum:]]"
+    popd > /dev/null
+    return $?
+  }
+  function long_pending_queries {
+    local count=5 tmp_file="query_out.txt" iRc
+    [[ $# -ne 0 ]] && [[ $1 =~ [1-9] ]] && count=$1
+    local duration='(now() - pg_stat_activity.query_start)'
+    csql -o ${tmp_file} -c "SELECT ${duration} As Duration, query As Query
+    FROM pg_stat_activity
+    where ${duration} > interval '5 minutes' and state='active'
+    ORDER BY duration DESC LIMIT ${count}"
+    iRc=$?
+    [[ $iRc -ne 0 ]] && return $iRc
+    local outf="/tmp/long_pending_queries_$(date '+%d%b%Y_%H_%M_%S_%s_%z').txt"
+    cat ${tmp_file} | tee -a ${outf} && rm -f ${tmp_file}
+    echo "${GREEN_COL}INFO:${RESET_COL}Output to ${YELLOW_COL}${outf}${RESET_COL} @ $(date -u '+%d%b%Y_%H_%M_%S_%s_%z')"
+    echo "Database Server time: $(csql -Atq -c 'select now()')"
+  }
+  function exec_command_exists {
+    type -a $1 &> /dev/null
+    local retVal=$?
+    if [ $# -eq 0 ] || [ ${retVal} -ne 0 ]
+    then
+      false
+    else
+      true
+    fi
+  }
+  function isValidXMLName {
+    local re='^([_:[:alpha:]][-._:[:alnum:]]?|(?![xX])[_:[:alpha:]][-._:[:alnum:]]{2,}|[_:[:alpha:]](?![mM])[-._:[:alnum:]][-._:[:alnum:]]+|[-._:[:alpha:]][-._:[:alnum:]](?![lL])[-._:[:alnum:]][-._:[:alnum:]]*)$'
+    grep -q -P $re <<< $1 > /dev/null
+  }
+  function useXMLLint { false; }
+  function toggleXMLLintUse { false; }
+  exec_command_exists xmllint || sudo apt install libxml2-utils
+  if exec_command_exists xmllint; then
+      function useXMLLint { true; }
+      function toggleXMLLintUse {
+          useXMLLint && function useXMLLint { false; } ||  function useXMLLint { true; }
+      }
+  fi
+  function xmlize {
+    echo '<?xml version="1.0" encoding="UTF-8"?><CAMP_XML_ROOT>'
+    if [ ! -t 0 ]; then
+        echo "$(cat)" | grep -i -v "<?xml "
+    fi
+    echo "</CAMP_XML_ROOT>"
+  }
+  function getXMLTagVal {
+    local TAG=$1
+    shift
+    local INPUT xpathIsExpr
+    isValidXMLName $TAG || { echo "$TAG does not appear to be a valid XML Name." | STDERR; ! useXMLLint && return 1; xpathIsExpr=1; }
+    local NthOccurrence=$1
+    NthOccurrence=${NthOccurrence:=1}
+    shift
+    if [ ! -t 0 ]; then
+      INPUT=$(cat)
+    else
+      INPUT="$(cat "$@")"
+    fi
+    if useXMLLint; then
+      # Use can use trim to get rid of leading and trailing spaces/newlines.
+      local opipefailVal='+' iRc
+      [[ X$(set -o | grep pipefail | tr -s '[:blank:]' | cut -f2) = "Xon" ]] && opipefailVal='-'
+      set -o pipefail
+      if [[ -z $xpathIsExpr ]]; then
+        echo "${INPUT}" | xmllint --xpath "(//*/*[name()=\"${TAG}\"])[${NthOccurrence}]/text()" - | cut -d\" -f2
+        iRc=$?
+      else
+        echo "${INPUT}" | xmllint --xpath "(//*/${TAG})[${NthOccurrence}]/text()" - | cut -d\" -f2
+        iRc=$?
+      fi
+      iRc=$?
+      set ${opipefailVal}o pipefail
+      return $iRc
+    else
+      export RARE_SQ1=${RARE_SQ1:=$(getUUID)}
+      echo "$INPUT" | sed -r -e '/^[\r\n[:blank:]]*$/ d' -e ":a;N;\$!ba;s/[\r]?\n/ ${RARE_SQ1} /g" | sed -r -e "s,^.*<${TAG}>,,g" -e "s,</${TAG}>.*$,,g" -e "s, ${RARE_SQ1} ,\n,g" | grep -v '<'
+    fi
+
+  #  echo "$INPUT" | sed -r -e '/^[\r\n[:blank:]]*$/ d' -e ":a;N;\$!ba;s/[\r]?\n/ ${RARE_SQ1} /g" | sed -r -e "s,<${TAG}>([^<]*)</${TAG}>,\1\n,g" -e "s, ${RARE_SQ1} ,\n,g"
+  }
+
+  function getXMLAttrVal {
+    export RARE_SQ1=${RARE_SQ1:=$(getUUID)}
+    export RARE_SQ2=${RARE_SQ2:=$(getUUID)}
+    local T TAGS bGetTagValue INPUT xpathIsExpr NthOccurrence=1 nArgs=$# iRc=0
+    [[ ! -z $1 ]] && { IFS=$','; TAGS=($1); unset IFS; }
+    for T in "${TAGS[@]}"; do
+      isValidXMLName "${T}" || { echo "$T does not appear to be a valid XML Name." | STDERR; ! useXMLLint && return 1; xpathIsExpr=1; }
+    done
+    ATTR=$2
+    isValidXMLName "${ATTR}" || { echo "$ATTR does not appear to be a valid XML Name." | STDERR; ! useXMLLint && return 1; xpathIsExpr=1; }
+    [[ ${ATTR} =~ [nN][oO][nN][eE] || ${ATTR} =~ [nN][uU][lL][lL] || ${ATTR} =~ [nN][iI][lL] || ${ATTR} =~ 0 ]] && bGetTagValue=1
+    case ${nArgs} in
+      2)
+        [[ ! -t 0 ]] && INPUT=$(cat)
+        ;;
+      3)
+        [[ ! -t 0 ]] && INPUT=$(cat) && NthOccurrence=$3
+        [[ $3 =~ ^-?[1-9]$ ]] && { NthOccurrence=$3; shift; }
+        ;;
+      4)
+        NthOccurrence=$3
+        shift
+        [[ ! -t 0 ]] && INPUT=$(cat)
+        ;;
+      *)
+        echo "${YELLOW_COL}Usage:${RESET_COL}:  ${FUNCNAME[0]} <XML-tag> <XML-tag-attribute> [NthOccurrence...1-999 | . (for printing all) )] <file-path>"
+        return 1
+        ;;
+    esac
+
+    [[ $NthOccurrence =~ ^-([1-9][0-9]*)$ ]] && { useXMLLint && NthOccurrence="last()-$[${BASH_REMATCH[1]}-1]"; } || [[ $NthOccurrence =~ ^[1-9][0-9]*$ ]] || { useXMLLint && [[ $NthOccurrence = '.' ]]; } || { echo "Bad value of occurence param '$NthOccurrence'. It must be an (+-)integer between 1-999." | STDERR || return 2; }
+    if [[ ! -z ${INPUT} ]]; then
+      # INPUT is read from pipe.
+      if useXMLLint; then
+        local opipefailVal='+'
+        [[ X$(set -o | grep pipefail | tr -s '[:blank:]' | cut -f2) = "Xon" ]] && opipefailVal='-'
+        set -o pipefail
+        for T in "${TAGS[@]}"; do
+          if [[ -z ${bGetTagValue} ]]; then
+            if [[ -z $xpathIsExpr ]]; then
+              echo "${INPUT}" | xmllint --xpath "(//*/*[name()=\"${T}\"]/@${ATTR})[${NthOccurrence}]" - | cut -d\" -f2
+            else
+              echo "${INPUT}" | xmllint --xpath "(//*/${T}/@${ATTR})[${NthOccurrence}]" - | cut -d\" -f2
+            fi
+          else
+            echo "${INPUT}" | getXMLTagVal "${T}" ${NthOccurrence}
+          fi
+          [[ $? -eq 0 ]] || iRc=$?
+        done
+        set ${opipefailVal}o pipefail
+      else
+        [[ -z ${bGetTagValue} ]] || { for T in "${TAGS[@]}"; do echo "$INPUT" | sed -r '/^[\r\n[:blank:]]*$/ d' | sed -r "s,.*<${T}[^>]+>([^<]*)</${T}>.*,\1,${NthOccurrence}" | grep -v '<'; done; return $?; }
+        for T in "${TAGS[@]}"; do
+          echo "$INPUT" | sed -r -e '/^[\r\n[:blank:]]*$/ d' -e ":a;N;\$!ba;s/[\r]?\n/ ${RARE_SQ1} /g" | sed -r "s/(<${T} [^>]*>)/${RARE_SQ2}\1${RARE_SQ2}/${NthOccurrence};s/.*${RARE_SQ2}(.*)${RARE_SQ2}.*/\1/g;s/${RARE_SQ1}//g;s/.*<${T}[^>]*${ATTR}\s*=\s*[\"\']([^\"\']*)[\"\'].*/\1/g" | grep -v '<'
+        done
+        iRc=$?
+      fi
+    else
+      # INPUT is to be read from a file speficied in argument.
+      INPUT=$3
+      [[ -z ${INPUT} || ! -f ${INPUT} ]] && { echo "Bad Input XML." | STDERR; return 3; } 
+      local opipefailVal='+' iRc
+      [[ X$(set -o | grep pipefail | tr -s '[:blank:]' | cut -f2) = "Xon" ]] && opipefailVal='-'
+      set -o pipefail
+      if useXMLLint; then
+        for T in "${TAGS[@]}"; do
+          if [[ -z ${bGetTagValue} ]]; then
+            if [[ -z $xpathIsExpr ]]; then
+              cat "${INPUT}" | xmllint --xpath "(//*/*[name()=\"${T}\"]/@${ATTR})[${NthOccurrence}]" - | cut -d\" -f2
+            else
+              cat "${INPUT}" | xmllint --xpath "(//*/${T}/@${ATTR})[${NthOccurrence}]" - | cut -d\" -f2
+            fi
+          else
+            cat "${INPUT}" | getXMLTagVal "${T}" ${NthOccurrence}
+          fi
+          [[ $? -eq 0 ]] || iRc=$?
+        done
+      else
+        [[ -z ${bGetTagValue} ]] || { for T in "${TAGS[@]}"; do cat "$INPUT" | sed -r '/^[\r\n[:blank:]]*$/ d' | sed -r "s,.*<${T}[^>]+>([^<]*)</${T}>.*,\1,${NthOccurrence}" | grep -v '<'; done; return $? ; }
+        for T in "${TAGS[@]}"; do
+          cat $INPUT | sed -r -e '/^[\r\n[:blank:]]*$/ d' -e ":a;N;\$!ba;s/[\r]?\n/ ${RARE_SQ1} /g" | sed -r "s/(<${T} [^>]*>)/${RARE_SQ2}\1${RARE_SQ2}/${NthOccurrence};s/.*${RARE_SQ2}(.*)${RARE_SQ2}.*/\1/g;s/${RARE_SQ1}//g;s/.*<${T}[^>]*${ATTR}\s*=\s*[\"\']([^\"\']*)[\"\'].*/\1/g" | grep -v '<'
+          [[ $? -eq 0 ]] || iRc=$?
+        done
+      fi
+      set ${opipefailVal}o pipefail
+    fi
+    return $iRc
+  }
+  function nchars { local v c=$1; shift; local s="$([[ -p /dev/stdin ]] && cat - || echo "$@")"; v="${s//[^$c]}"; echo ${#v}; }
+  function joinArray {
+    local IFS="${1}"
+    shift
+    echo "$*"
+  }
+  # *************************************************************
+  # This function redirect the pipe input to stderr.
+  #
+  # @param string
+  function STDERR {
+    echo -n "${RED_COL}" 1>&2
+    cat - 1>&2
+    echo -n "${RESET_COL}" 1>&2
+    return 1
+  }
+  function STDWARN {
+    echo -n "${YELLOW_COL}" 1>&2
+    cat - 1>&2
+    echo -n "${RESET_COL}" 1>&2
+    return 0
+  }
+  function STDINFO {
+    echo -n "${GREEN_COL}" 1>&2
+    cat - 1>&2
+    echo -n "${RESET_COL}" 1>&2
+    return 0
+  }
+  function trim {
+      local var="$*"
+      # remove trailing whitespace characters
+      var="${var#"${var%%[![:space:]]*}"}"
+      # remove leading whitespace characters
+      var="${var%"${var##*[![:space:]]}"}"
+      printf '%s' "$var"
+  }
+  function rep {
+      local re='^[0-9]+$' str=$1 count=$2
+      count=
+      [[ ! $2 =~ $re ]] && return 1
+      printf "%0.s${str}" $(seq 1 $count) && return
+      export RARE_SQ1=${RARE_SQ1:=$(getUUID)}
+      [[ $2 = 0 ]] && return
+      [[ -z $2 || $2 = 1 ]] && echo -ne "${1}" && return
+      [[ $2 -ge 2 ]] && eval echo \"${1}${RARE_SQ1}\"{$(head -c $[$2-1] /dev/zero |tr '\0' ',')} | sed -r "s,${RARE_SQ1}[[:space:]]?,,g"
+  }
+  function h2d {
+  # signed int32 range is      0 1 2 ... 9 10 11 2147483647 -2147483648 -2147483647 ... -1
+  # signed int32 range(in hex) 0 1 2 ... 9  A  B   7fffffff    80000000    80000001 ... FFFFFFFF
+    local outAsUnSigned ignoreNonHexChars iRc
+    [[ X${1:0:1} = X"-" || $# -eq 0 ]] && { [[ $1 =~ [hH/?] || $# -eq 0 ]] && echo "${YELLOW_COL}Usage:${RESET_COL}  ${FUNCNAME[0]}  [-h(help)i(ignore non hex chars in input)u(unsigned output)] <hexnum-1> [hexnum-2] ... Or PIPE-IN" && return 1; [[ $1 =~ [uU] ]] && outAsUnSigned=1; [[ $1 =~ [iI] ]] && ignoreNonHexChars=1; true; } && shift
+    local input="$([[ -p /dev/stdin ]] && cat - || echo "$@")"
+    if [[ -n "$input" ]]; then
+      for i in $input; do
+        local num
+        if [[ $i =~ .*[^0-9a-fA-F]+.* ]]; then
+          num=$(echo $i | sed -r -e 's,^.*[xX],,' -e 's,[hH]$,,')
+          if [[ $num =~ ^[0-9a-fA-F]+$ ]]; then
+            iRc=0
+          else
+            iRc=1
+            [[ -z ${ignoreNonHexChars} ]] || { num=${num%%.*}; num=$(echo ${num} | tr -c -d '0-9a-fA-F'); [[ -n $num ]] && iRc=0; }
+          fi
+        else
+          iRc=0
+          num=$i
+        fi
+        [[ $iRc -eq 0 ]] || { echo "${RED_COL}ALERT${RESET_COL}: Ignoring Invalid hex ${i}"; continue; }
+        local hexNum=${num}
+        [[ ${#num} -gt 16 ]] && outAsUnSigned=1
+        num=$(( 16#${num} ))
+        if [[ -z ${outAsUnSigned} ]]; then
+          [[ ${num} -gt 2147483647 && ${num} -le 4294967295 ]] && num=$(echo -n "-$[4294967296 - ${num}]")
+        else
+          [[ ${num} -lt 0 ]] && num=$(echo "obase=10; ibase=16; ${hexNum}" | bc -l)
+        fi
+        echo -n ${num}
+      done
+    fi
+    return $iRc
+  }
+
+  function d2h {
+    local input="$([[ -p /dev/stdin ]] && cat - || echo "$@")"
+    if [[ -n "$input" ]]; then
+      for i in $input; do
+        i=${i//,/} # remove any  commas.
+        i=${i//+/} # remove any  + sign.
+        i=${i%%.*} # remove any (.)decimal/fractional part or Mantissa.
+        printf '%x ' $i
+      done
+    fi
+  }
+  function xt {
+    export FMT=${FMT:="+%Y-%m-%d %H:%M:%S %:z"}
+    _MATCHES '^(-|/)(h|\?)' || [[ $# -eq 0 ]] && { echo "${YELLOW_COL}Usage:${RESET_COL} ${FUNCNAME[0]} <function> [-h(elp)] [from-time-zone(default ${YELLOW_COL}${TZ}${RESET_COL})] <to-timezone> [time (in format recognized by date command e.g ${YELLOW_COL}YYYY-MM-DD HH:MM:SS TZ${RESET_COL} if format is ${YELLOW_COL}${FMT}${RESET_COL})]"; echo "Modify env variable ${YELLOW_COL}FMT${RESET_COL} to choose a different output format."; local tzDir='/usr/share/zoneinfo/posix/'; [[ ! -d ${tzDir} ]] && tzDir="$(dirname ${tzDir})"; complete -W "$( (cd /usr/share/zoneinfo/posix/ && find -L . -type f) | sed 's,./,,' | xargs)" ${FUNCNAME[0]}; return 1; }
+
+    function __adjustTZ {
+      [[ -z $1 ]] && return
+      local l_tz=$1
+      [[ $l_tz =~ ^[0-9] ]] && l_tz="+${l_tz}"
+      [[ $l_tz =~ ^[-+] ]] && l_tz="UTC${l_tz}"
+      [[ $l_tz =~ [-+][0-9] ]] && l_tz=$(echo $l_tz | tr "+-" "-+") || {
+        local l
+        if [[ ${l_tz} =~ / ]]; then
+          l=$((cd /usr/share/zoneinfo/posix/ && find -L . -type f) | sed 's,./,,' | grep -E "^${l_tz}$")
+        else
+          l=$((cd /usr/share/zoneinfo/posix/ && find -L . -type f) | sed 's,./,,' | grep "${l_tz}" | head -n 1)
+        fi
+        l_tz=$l
+      }
+      echo ${l_tz}
+    }
+    from=$(__adjustTZ $1)
+    shift
+
+    local to=$1
+    [[ -z $to ]] && to=${from} && from='' || { shift; to=$(__adjustTZ $to); }
+
+    local timeInfo="$([[ -p /dev/stdin ]] && cat - || echo "$@")"
+    [[ -z "$timeInfo" ]] && timeInfo="$(date)"
+    if [[ -n "$timeInfo" ]]; then
+      t_IFS=$IFS
+      IFS=$'\n'
+      for t in $timeInfo ; do
+        if [[ -z $from ]]; then
+          from=$(echo $t | awk -F":" '{print $NF;}' | sed -n -r 's,([^+-]+)([+-][^\s]*).*,\2,p') && from=$(__adjustTZ $from)
+          [[ -z $from ]] && from=$(echo $t | awk -F":" '{print $NF;}' | sed -n -r 's,.*\s([A-Z]{3\,4})(\s.*|$),\1,p')
+          local l_tz=${TZ}
+          [[ -z ${l_tz} ]] && exec_command_exists timedatectl && l_tz=$(timedatectl show -p Timezone --value)
+          if [[ ! -z $from ]] ; then
+            from=$(__adjustTZ $from)
+            [[ -z $from ]] && echo "${RED_COL}ALERT:${RESET_COL} Failed to deduce 'from' time zone." && from=${l_tz}
+            from=$(__adjustTZ $from)
+            echo "Fallback to timezone ${YELLOW_COL}${from}${RESET_COL} or else Pls specify time zone explicitly."
+          else
+            from=${l_tz}
+          fi
+        fi
+        # echo "$(__adjustTZ $from) to $(__adjustTZ $to)"
+        TZ=${to} date --date="TZ=\"${from}\" ${t}" "${FMT}"
+      done
+      IFS=${t_IFS}
+    fi
+    unset __adjustTZ
+  }
+  alias pgsql=psql
+  alias csql=psql
+  alias df='df -h'
+  alias du='du -h'
+  alias 2root='cd $CAMP_AC_ROOT' 
+  alias 2conf='cd $CAMP_AC_ROOT/conf'
+  alias 2bin='cd $CAMP_AC_ROOT/bin'
+  alias 2logs='cd $CAMP_AC_ROOT/var'
+  alias perf_sql='pgsql -Atq --pset=pager=off --o /dev/null -c "\timing"'
+  alias psql_log='psql -Aq --csv --pset=pager=off'
+  alias psug='ps -o pid,euid,ruid,suid,egid,rgid,sgid,cmd -p '
+  eval $(sudo /usr/bin/camp-db-params -e)
+  alias camp-apache-serverstatus="elinks http://localhost/server-status"
+  alias r='sudo systemctl restart nlserver'
+  alias cst='sudo systemctl start nlserver'
+  alias csp='sudo systemctl stop nlserver'
+  2root
+  source env.sh
+}
+function uninstallRemote {
+  export CUS_VER_HEADER='Custom Commands'
+  grep "${CUS_VER_HEADER}" ~/.bashrc > /dev/null
+  [[ $? -eq 0 ]] || return
+  sed -i -r "/^[#[:space:]]+${CUS_VER_HEADER}/,/^[#[:space:]]+${CUS_VER_HEADER}.*END--$/d" ~/.bashrc
+  export tokeep=$(wc -c <<< $(< ~/.bashrc))
+  dd if=/dev/null of=~/.bashrc bs=1 seek=${tokeep}
+}
+
+function enableTCPForwarding {
+  local _SSHD_CONF='/etc/ssh/sshd_config' _SSHD_CONF_BKP='/etc/ssh/sshd_config.TCPForwarding.bak'
+  if [[ -z $1 ]]; then
+    if sudo test -f ${_SSHD_CONF}; then
+      sudo grep -E -i "^(\s*AllowTcpForwarding\s+)no" ${_SSHD_CONF} || return
+      echo "Ensure 'AllowTcpForwarding' is set to 'yes' in '${_SSHD_CONF}' and restarting sshd daemon to enable ssh tunnel to work."
+      sudo cp -f -p ${_SSHD_CONF} ${_SSHD_CONF_BKP}
+      sudo sed -r -i 's,^(\s*AllowTcpForwarding\s+)no,\1yes,gI' ${_SSHD_CONF}
+      sudo systemctl restart sshd.service
+    fi
+    systemctl is-active sshd.service && return
+  fi
+  sudo test -f ${_SSHD_CONF_BKP} && sudo mv -f ${_SSHD_CONF_BKP} ${_SSHD_CONF} && echo "Restore 'AllowTcpForwarding' setting in '${_SSHD_CONF}' to its original state and restarting sshd daemon if required." && sudo systemctl restart sshd.service
+  systemctl is-active sshd.service
+}
 
 function sshr {
 # https://chamibuddhika.wordpress.com/2012/03/21/ssh-tunnelling-explained/
 # https://digitalcrunch.com/linux/how-to-use-an-ssh-tunnel-through-a-jump-host/
   local firstArg=$1 ruser
+  local sshCmd='sshr'
+  local CUS_VER_HEADER='Custom Commands'
+  _CONTAINS -all "$@" && sshCmd='execute_containers -a'
+  if _CONTAINS -install "$@"; then
+    shift
+    _CONTAINS -all "$@" && shift
+    local cmds=$(type installRemote | tail -n +4 | head -n -1 | sed 's,^\s*,,g' | gzip | base64 -w 0)
+    CUS_VER_HEADER="#${CUS_VER_HEADER} VERSION 1"
+    ${sshCmd} $@ "grep '${CUS_VER_HEADER}' ~/.bashrc > /dev/null || { echo "Installing..."; echo -e '\n${CUS_VER_HEADER} --START\n' >> ~/.bashrc; echo ${cmds} | base64 -d | zcat >> ~/.bashrc; echo -e '\n${CUS_VER_HEADER} END--\n' >> ~/.bashrc; }"
+    return 0
+  fi
+  if _CONTAINS -uninstall "$@"; then
+    shift
+    _CONTAINS -all "$@" && shift
+    echo "removing any existing CUS_VER_HEADER headers"
+    local cmds=$(type uninstallRemote | tail -n +4 | head -n -1 | sed 's,^\s*,,g' | gzip | base64 -w 0)
+    ${sshCmd} $@ "echo "Uninstalling..."; echo ${cmds} | base64 -d | zcat > /tmp/uninstall.sh; source /tmp/uninstall.sh;"
+    return 0
+  fi
+  _CONTAINS -all "$@" && shift
+
   [[ ${1##*@} = ${1} ]] || { ruser=${1%%@*}; firstArg=${1##*@}; }
   ruser=${ruser:=$(whoami)}
 # ssh ${SSHR_OPTS} L7070:localhost:7071 $(whoami)@$(getJumpHost) "ssh ${SSHR_OPTS} -D7071 ${ruser}@${rhost}"
 # Above command should open port 7070 on your local machine to the jumphost, from the jumphost port 7071 it routes it outbound to the ssh server on furtherhost.
 # All you need to do to use this SSH tunnel is point your application to the localhost on port 7070 and your ip will appear to come from the furtherhost, not the jumphost.
   if [ -z "$firstArg" ]; then
-    echo "${YELLOW_COL}Usage:${RESET_COL} ${FUNCNAME[0]} <remote-host> | clean > [remote host commands] | [ tunnel [ db[:db_host:port] | ssh[:ssh_host:port] ] ]"
-    #Sample use of remote command execution on multiple comtainers and consolidating of data in one for all of them.
+    echo "${YELLOW_COL}Usage:${RESET_COL} ${FUNCNAME[0]} [-all(excute given command on all containers) | -clean(jumphost -- obsolete) | -install | -uninstall] <remote-host> [remote host commands] | -tunnel [ -db[:db_host:port] | -ssh[:ssh_host:port] ]"
+    # Sample use of remote command execution on multiple comtainers and consolidating of data in one for all of them.
     # start='2022-09-18 08:00:00'; end='2022-09-18 09:00:00'; for i in $(seq 1 1 5); do  sshr walgreens-mid-prod3-${i}.campaign.adobe.com 'find /usr/local/neolane/nl6/var/walgree_mid_prod3/redir/log/ -type f -newermt "'${start}'" ! -newermt "'${end}'" | xargs cat | cut -f4 | sort | uniq > /home/${ruser}/$(hostname).txt; chown ${ruser}:users  /home/${ruser}/$(hostname).txt;'; cp4r walgreens-mid-prod3-${i}.txt walgreens-mid-prod3-${i}.campaign.adobe.com; done; echo $(cat wa* | sort | uniq | wc -l) Dirty deliveries between ${start} and ${end};
     echo "${GREEN_COL}INFO:${RESET_COL} Sample use of remote command execution on multiple comtainers and consolidation all of their resulting data locally on your machine"
     echo "${YELLOW_COL}start='2022-09-18 08:00:00'; end='2022-09-18 09:00:00'; for i in \$(seq 1 1 5); do  sshr walgreens-mid-prod3-\${i}.${HOSTED_CAMPAIGN_DOMAIN} 'find /usr/local/neolane/nl6/var/walgree_mid_prod3/redir/log/ -type f -newermt \"'\${start}'\" ! -newermt \"'\${end}'\" | xargs cat | cut -f4 | sort | uniq > /home/\${ruser}/\$(hostname).txt; chown \${ruser}:users  /home/\${ruser}/\$(hostname).txt;'; cp4r walgreens-mid-prod3-\${i}.txt walgreens-mid-prod3-\${i}.${HOSTED_CAMPAIGN_DOMAIN}; done; echo \$(cat wa* | sort | uniq | wc -l) Dirty deliveries between \${start} and \${end};${RESET_COL}"
     return 1
   fi
-  if [ X"${firstArg,,}" = X"clean" ]; then
+  if [ X"${firstArg,,}" = X"-clean" ]; then
     local jh=$(getJumpHost)
     echo "${YELLOW_COL}WARN:${RESET_COL} Cleaning /tmp folder on jumphost ${YELLOW_COL}${jh}${RESET_COL}, of all files owned by ${YELLOW_COL}${ruser}${RESET_COL}"
     local clean_Cmd='for f in $(find /tmp -maxdepth 1 -type f -user '"${ruser}"'; do echo $f; rm -f $f; done'
@@ -8664,10 +9681,10 @@ function sshr {
   [[ "X${rhost#*.}" = Xrd.${HOSTED_CAMPAIGN_DOMAIN} ]] && [[ $(nslookup ${rhost} | grep -E ^Name: | awk '{ print $2; }') =~ ^[A-Za-z][A-Za-z][0-9]+\.${ADOBE_CORP_DOMAIN}$ ]] && echo "Using prod user and legacy password for connecting to rd-dev machine." && { ssh ${SSHR_OPTS} prod@${rhost} $@; return $? ; }
 #  local tunnel_mode=$(_KEY_HAS_VALUE tunnel "$@") # this changes value of $? , so split it into two lines.
   local tunnel_mode
-  tunnel_mode="$(_KEY_HAS_VALUE tunnel "$@")"
+  tunnel_mode="$(_KEY_HAS_VALUE -tunnel "$@")"
   if [ $? -eq 0 ]; then
     if [[ -z "${tunnel_mode}" ]]; then
-      tunnel_mode=ssh
+      tunnel_mode='-ssh'
     fi
   fi
   [[ ! -z ${rhost} ]] && [[ X${rhost%%*.*} = X${rhost} ]] && rhost="${rhost}.${HOSTED_CAMPAIGN_DOMAIN}"
@@ -8678,15 +9695,16 @@ function sshr {
     echo "${GREEN_COL}INFO:${RESET_COL} Doing ssh login into ${YELLOW_COL}${rhost}${RESET_COL}"
     local REMOTE_CMD_OUTPUT_BUFFER=${SSH_REMOTE_CMD_OUTPUT_BUFFER:=1000}
     [[ -z $@ ]] && unset REMOTE_CMD_OUTPUT_BUFFER
-    local sshCmd="ssh ${SSHR_OPTS} $(whoami)@$(getJumpHost) \"ssh ${SSHR_OPTS} ${ruser}@${rhost} $@\""
+    local sshCmd="ssh ${SSHR_OPTS} ${ruser}@$(getJumpHost) \"ssh ${SSHR_OPTS} ${ruser}@${rhost} $@\""
     execute_with_UserInteraction "${sshCmd}" "${sshSingleSignOnPrompt}"
   else
+    rfexec -l ${rhost} enableTCPForwarding
     local tunnelPort=$(getNextAvailablePort)
     echo -ne "${GREEN_COL}INFO:${RESET_COL} Creating ssh tunnel on localhost port ${YELLOW_COL}${tunnelPort}${RESET_COL} ..."
     local l_dbHost
-    local _TUN_DB="db"
-    local _TUN_SSH="ssh"
-    if [ "X${tunnel_mode:0:${#_TUN_DB}}" = X"${_TUN_DB}" ]; then
+    local _TUN_DB="-db"
+    local _TUN_SSH="-ssh"
+    if [ "X${tunnel_mode:0:${#_TUN_DB}}" = X"${_TUN_DB}" ]; then # if it is a tunnel to database
         function __findValue {
             [[ -z $1 ]] && return 1
             [[ -z $2 ]] && return 2
@@ -8705,7 +9723,7 @@ function sshr {
         l_dbHost="${tunnel_mode:$[${#_TUN_DB}+1]}"
         local db_connect_param_json
         if [[ -z ${l_dbHost} ]]; then
-#                  export RARE_SQ1=${RARE_SQ1:=$(getUUID)}; db_connect_param_json="$(ssh ${SSHR_OPTS} $(whoami)@$(getJumpHost) "ssh ${SSHR_OPTS} ${ruser}@${rhost} sudo camp-db-params" | sed -r ":a;N;\$!ba;s/[\r]?\n/ ${RARE_SQ1} /g" | sed -r "s,[^{]+(\{.*\})[^}]+,\1,g" | sed "s/ ${RARE_SQ1} /$(getEOL)/g")"
+          # export RARE_SQ1=${RARE_SQ1:=$(getUUID)}; db_connect_param_json="$(ssh ${SSHR_OPTS} $(whoami)@$(getJumpHost) "ssh ${SSHR_OPTS} ${ruser}@${rhost} sudo camp-db-params" | sed -r ":a;N;\$!ba;s/[\r]?\n/ ${RARE_SQ1} /g" | sed -r "s,[^{]+(\{.*\})[^}]+,\1,g" | sed "s/ ${RARE_SQ1} /$(getEOL)/g")"
           db_connect_param_json="$(ssh ${SSHR_OPTS} $(whoami)@$(getJumpHost) "ssh ${SSHR_OPTS} ${ruser}@${rhost} sudo camp-db-params" | awk '/{.*/{print; f=1;next}/}/{print;f=0;}f')"
         elif [[ $l_dbHost =~ ^([\-\.[:alnum:]]*[[:alnum:]])(:[1-9][0-9]{0,4})?$ ]]; then
             db_connect_param_json="{'host' : '${l_dbHost}'}"
@@ -8717,7 +9735,7 @@ function sshr {
           unset -f __findValue
           return 2
         fi
-#          qVar='host' l_dbHost=$(echo "${db_connect_param_json}" | sed -r -e "s,^[{[:space:]]+,,g" -e "s,[}\,[:space:]]+$,,g" | grep -i "'${qVar}'" | awk -F ":" '{print $2}' | sed -r -e "s,^['{[:space:]]+,,g" -e "s,[}\,'[:space:]]+$,,g")
+        # qVar='host' l_dbHost=$(echo "${db_connect_param_json}" | sed -r -e "s,^[{[:space:]]+,,g" -e "s,[}\,[:space:]]+$,,g" | grep -i "'${qVar}'" | awk -F ":" '{print $2}' | sed -r -e "s,^['{[:space:]]+,,g" -e "s,[}\,'[:space:]]+$,,g")
         l_dbHost=$(__findValue "$db_connect_param_json" host)
         if [ $(nchars : ${l_dbHost}) -eq 0 ]; then
           l_dbHost=${l_dbHost}:5432
@@ -8735,12 +9753,13 @@ function sshr {
         echo "${GREEN_COL}INFO:${RESET_COL} Test this tunnel connection via following command from a separate terminal prompt..."
         echo "${YELLOW_COL}csql --dbname ${l_dbname} --host localhost --port ${tunnelPort} --username ${l_dbUser} --password ${l_dbPass} -c 'SELECT version();'${RESET_COL}"
         echo "${GREEN_COL}INFO:${RESET_COL} Please ensure ${YELLOW_COL}AllowTcpForwarding${RESET_COL} is set to ${YELLOW_COL}yes${RESET_COL} in ${YELLOW_COL}/etc/ssh/sshd_config${RESET_COL} on ${YELLOW_COL}${rhost}${RESET_COL}  and after making necessary changes you can use ${YELLOW_COL}systemctl restart sshd.service${RESET_COL} to restart sshd daemon or Else ssh tunnel may not work and you may see error messages like ${YELLOW_COL}channel 2: open failed: administratively prohibited: open failed${RESET_COL} on console which is creating this tunnel."
+        echo "${YELLOW_COL}WARN:${RESET_COL} Ensure you call ${YELLOW_COL} rfexec -l ${rhost} enableTCPForwarding restore ${RESET_COL}to restore TCP forwarding to its original state,once you close the tunnel"
         echo "${GREEN_COL}INFO:${RESET_COL}Cauterize using following command(choose a single local instance(first argument) of your choice in case you have multiple existing local instances)."
         local l_local_instance_to_cauterize=$(getCampaignInstance)
         l_local_instance_to_cauterize=${l_local_instance_to_cauterize:='<any-existing-local-instance>'}
         echo "${YELLOW_COL}cauterizeInstance ${l_local_instance_to_cauterize} ${l_dbname} ${l_dbUser} ${l_dbPass} localhost ${tunnelPort}${RESET_COL}"
         ssh ${SSHR_OPTS} -L ${tunnelPort}:127.0.0.1:${tunnelPort} -A -t $(whoami)@$(getJumpHost) "ssh ${SSHR_OPTS} -L ${tunnelPort}:${l_dbHost} ${ruser}@${rhost} echo '********** TUNNEL to ${l_dbHost%%.*} ***********'; bash -l"
-      else # if tunnel_mode is db but does not specify any explicit dbHost.
+      else    # if tunnel_mode is db but does not specify any explicit dbHost.
         local db_connect_param_json="$(ssh ${SSHR_OPTS} $(whoami)@$(getJumpHost) "ssh ${SSHR_OPTS} ${ruser}@${rhost} sudo camp-db-params" | awk '/{.*/{print; f=1;next}/}/{print;f=0;}f')"
         l_dbHost=$(__findValue "$db_connect_param_json" host)
         if [ -z ${l_dbHost} ]; then
@@ -8748,7 +9767,7 @@ function sshr {
           unset -f __findValue
           return 3
         fi
-        local opendbTunnelCmd="${FUNCNAME[0]} ${rhost} tunnel db:${l_dbHost}"
+        local opendbTunnelCmd="${FUNCNAME[0]} ${rhost} -tunnel -db:${l_dbHost}"
         l_dbname=$(__findValue "$db_connect_param_json" dbname)
         l_dbPass=$(__findValue "$db_connect_param_json" password)
         l_dbUser=$(__findValue "$db_connect_param_json" user)
@@ -8758,6 +9777,7 @@ function sshr {
         echo "${YELLOW_COL}csql --dbname ${l_dbname} --host localhost --port ${tunnelPort} --username ${l_dbUser} --password ${l_dbPass} -c 'SELECT version();'${RESET_COL}"
         local attempt=5
         echo "${GREEN_COL}INFO:${RESET_COL} Please ensure ${YELLOW_COL}AllowTcpForwarding${RESET_COL} is set to ${YELLOW_COL}yes${RESET_COL} in ${YELLOW_COL}/etc/ssh/sshd_config${RESET_COL} on ${YELLOW_COL}${rhost}${RESET_COL}  and after making necessary changes you can use ${YELLOW_COL}systemctl restart sshd.service${RESET_COL} to restart sshd daemon or Else ssh tunnel may not work and you may see error messages like ${YELLOW_COL}channel 2: open failed: administratively prohibited: open failed${RESET_COL} on console which is creating this tunnel."
+        echo "${YELLOW_COL}WARN:${RESET_COL} Ensure you call ${YELLOW_COL} rfexec -l ${rhost} enableTCPForwarding restore ${RESET_COL}to restore TCP forwarding to its original state,once you close the tunnel"
         while [[ ${attempt} -ne 0 && $(getNextAvailablePort) -eq ${tunnelPort} ]]; do
           attempt=$[${attempt}-1]
           readEx "Waiting for another " 10 " seconds  for the tunnel to go live on localhost port ${tunnelPort}. Press any key to abort this wait..."
@@ -8770,7 +9790,7 @@ function sshr {
         unset -f __findValue
         return
       fi
-    elif [ "X${tunnel_mode:0:${#_TUN_SSH}}" = X"${_TUN_SSH}" ]; then
+    elif [ "X${tunnel_mode:0:${#_TUN_SSH}}" = X"${_TUN_SSH}" ]; then # if it is a tunnel for ssh
       echo "for ssh login to host ${YELLOW_COL}${rhost}${RESET_COL}"
       local l_host
       if [ "X${tunnel_mode:${#_TUN_SSH}:1}" = X":" ]; then
@@ -8786,7 +9806,7 @@ function sshr {
         echo "${GREEN_COL}INFO:${RESET_COL} Please ensure ${YELLOW_COL}AllowTcpForwarding${RESET_COL} is set to ${YELLOW_COL}yes${RESET_COL} in ${YELLOW_COL}/etc/ssh/sshd_config${RESET_COL} on ${YELLOW_COL}${rhost}${RESET_COL} Else ssh tunnel may not work and you may see error messages like ${YELLOW_COL}channel 2: open failed: administratively prohibited: open failed${RESET_COL} on console which is creating this tunnel."
       else
         l_host=127.0.0.1
-        local opensshTunnelCmd="${FUNCNAME[0]} ${rhost} tunnel ssh:${l_host}"
+        local opensshTunnelCmd="${FUNCNAME[0]} ${rhost} -tunnel -ssh:${l_host}"
         echo "Opening tunnel for ssh to host ${YELLOW_COL}${l_host}${RESET_COL} via ${YELLOW_COL}'""${opensshTunnelCmd}""'${RESET_COL} in a separate console window."
         openTerm -q -c "${opensshTunnelCmd}" &
         echo "${GREEN_COL}INFO:${RESET_COL} After tunnel is created in parallel console window, you can then connect to host using following command:"
@@ -8805,15 +9825,20 @@ function sshr {
   fi
   [[ $? -eq 0 ]] && echo ${rhost} >> ~/.hosts
 }
+
 function execute_containers {
   [[ $# -gt 1 ]] || { echo "${YELLOW_COL}Usage:${RESET_COL} ${FUNCNAME[0]} <remote-host> cmd [args ...]"; return; }
+  local force
+  [[ ${1,,} = "-a" ]] && force=1 && shift
   local rhost=$1
+  rhost=$(echo $rhost | sed -r 's,^(.*:[/]+)([-\.[:alnum:]]+)[/]*.*,\2,g')
   local domain=${rhost#*.}
   [[ ${domain} = ${rhost} ]] && domain=${HOSTED_CAMPAIGN_DOMAIN}
   rhost=${rhost%%.*}
   shift
   cmd="$@"
   local ctCount=1 startCt=1
+  [[ -n $force ]] && [[ $rhost =~ ^.*[[:alnum:]][[:digit:]]-[[:digit:]]$ ]] && rhost=${rhost%-*}
   [[ $rhost =~ ^(.*[[:alnum:]])-([[:digit:]])$ ]] && { rhost=${BASH_REMATCH[1]}; startCt=${BASH_REMATCH[2]}; ctCount=${startCt}; } || ctCount=$(containers $rhost)
   for c in $(seq ${startCt} 1 ${ctCount}); do
     sshr ${rhost}-${c}.${domain} ${cmd}
@@ -8821,6 +9846,320 @@ function execute_containers {
     done 2>/dev/null | sed -ne "/LOG OFF/,/Connection to ${rhost}/{//!p;}"
     # sed -ne "/LOG OFF/,/Connection to ${rhost}/{/LOG OFF/!p}"
 }
+
+function getRemoteCmd {
+  local __FUNCNAME=$1
+  shift
+  local tmp=/tmp/${FUNCNAME[0]}.sh
+  declare -f ${__FUNCNAME} > /tmp/${FUNCNAME[0]}.sh
+  local retCmd argIndex=1
+  for arg in $@; do
+    sed -i "s,\$${argIndex},\"${arg}\",g" $tmp
+    argIndex=$[${argIndex}+1]
+  done
+  local cmd="$(cat $tmp | tail -n +3 | head -n -1 | sed -r 's,([^;])$,\1;,g' | sed -r "s,^([[:space:]]*local [^=]*);$,\1='';,g" | sed -r 's,local ,,g' | sed -r 's,^\s+,,g' | tr '\n' ' ')"
+  printf "sudo -- bash -c '${cmd}'"
+ }
+
+function processSymbols {
+  local symbolFile=$1 libnlsrvmod_sym=$2 devDir=/usr/local/neolane/dev
+  [[ -d ${devDir} ]] || sudo mkdir ${devDir}
+  sudo cp -f -p ${symbolFile} ${devDir}
+  sudo gunzip -N -k -f ${devDir}/${symbolFile}
+  [[ -n $libnlsrvmod_sym ]] && sudo cp -f -p ${libnlsrvmod_sym} ${devDir}
+  [[ -n $libnlsrvmod_sym ]] && sudo gunzip -N -k -f ${devDir}/${libnlsrvmod_sym}
+  sudo chown -R neolane:neolane ${devDir}
+  sudo chmod -R 755 ${devDir}
+  [[ -L /build ]] || sudo ln -s ${devDir} /build
+  ls -alt ${devDir}
+  local SHMCAT_TOOL=${devDir}/shmcat
+  if [[ ! -e $SHMCAT_TOOL ]]; then
+    gcc -O2 -std=gnu99 shmcat.c -o ./shmcat
+    [[ -f ./shmcat ]] && chmod +x ./shmcat || echo "Error building shmcat"
+    sudo cp -f -p ./shmcat $SHMCAT_TOOL
+  fi
+}
+
+function dbg_pdump {
+  local module=$1
+  shift
+  local state=$1
+  shift
+  [[ -z $module ]] && module="mtachild"
+  [[ -z $state ]] && state="waiting"
+  nlserver pdump -full -dead ${module}
+  local execFile=$(type -p nlserver)
+  [[ -e ~/dev/nlserver.dbg ]] && execFile=~/dev/nlserver.dbg
+  for pid in $(nlserver pdump -full -dead ${module} | grep -E -B 8 "^Last alive.*([[:digit:]]{1,2}h|[[:digit:]]{1,3}d).+" | grep -E -B 2 -A 5 "^Status.*(${state})" | grep -E "^Pid" | awk -F"=" '{print $2;}' | sed 's,\s,,g'); do
+    gdb -q -ex "set pagination off" -ex "thread apply all bt" --batch ${execFile} -p ${pid}
+  done
+}
+
+function getAllHostedInstances {
+  _MATCHES '^(-|/)(h|\?)' && {
+    echo -e "${YELLOW_COL}Usage:${RESET_COL} ${FUNCNAME[0]} [name-filters-regex-1] ..."
+    echo -e "\tFilters hostnames from input based on provided regex patterns."
+    echo -e "\tIf no input is piped, it reads from ${HOME}/.vault_hosts."
+    echo -e "\tUse '!' before a regex pattern to exclude matches."
+    echo -e "${YELLOW_COL}Examples:${RESET_COL}"
+    echo -e "\tcat hosts.txt | ${FUNCNAME[0]} mkt prod '!^sf' '!_' '!test' '!\-stage' '!\-dev'"
+    echo -e "\t${FUNCNAME[0]} mkt prod '!^sf' '!_' '!test' '!\-stage' '!\-dev' | tee -a live_mkt_instances.txt"
+    return
+  }
+
+  # Determine source file
+  local srcFile
+  [[ -p /dev/stdin ]] && srcFile="/dev/stdin" || srcFile="$HOME/.vault_hosts"
+
+  # Prepare grep command
+  local cmd="grep -v -E '^\s*#' \"$srcFile\" | grep -v -E '^\s*$'"
+  for h in "$@"; do
+    if [[ ${h:0:1} = '!' ]]; then
+      cmd+=" | grep -i -v -E '${h:1}'"
+    else
+      cmd+=" | grep -i -E '${h}'"
+    fi
+  done
+
+  # Process each host separately
+  eval "$cmd" | while read -r h; do
+    h=${h/*\//}  # Remove everything up to and including last "/"
+    tmpFile=$(mktemp)  # Create a unique temp file for each host
+
+    soap_rtest "${h/_/-}.${HOSTED_CAMPAIGN_DOMAIN}" 2>/dev/null | grep -v "WARN" > "$tmpFile"
+    local build=20000
+    [[ -s $tmpFile ]] && build=$(cat "$tmpFile" | xmlize | getXMLAttrVal redir build)
+
+    # Output only if build is within range
+    [[ $build -lt 9999 && $build -gt 8000 ]] && echo "$h"
+
+    rm -f "$tmpFile"  # Clean up temp file
+  done
+}
+
+function findLongRunningQueryInfo {
+  local LRQ_threshold=$1 # in hours
+  [[ $LRQ_threshold =~ ^([1-9][0-9]*)$ ]] || LRQ_threshold=4
+
+  eval $(sudo camp-db-params -e)
+  local psql_log='psql -Aqt --csv --pset=pager=off'
+  # $psql_log -c "SELECT  W0.iStatus, SecondsDiff(Coalesce(W0.tsCompletion , GetDate()) , Coalesce(W0.tsRunning , Coalesce(W0.tsProcessing , Coalesce(W0.tsCompletion , GetDate()))))
+  # FROM XtkWorkflowTask W0 JOIN XtkWorkflow W1 ON (W1.iWorkflowId = W0.iWorkflowId)
+  # WHERE ((W1.sInternalName = E'WKF3101') AND (W0.sActivity = E'query'))
+  # order by W0.tsCreation DESC LIMIT 30;
+  # echo "hostname,acc_build,cmdline,workflow_activity,process_uptime_seconds,postgres_pid,application_name,client_addr,wait_event,wait_event_type,state,query_elapsed_time,query_text"
+  local hi="$(hostname --fqdn),$(cat /usr/local/neolane/nl6/VERSION)"
+  $psql_log -c "select pid, application_name, client_addr, wait_event, wait_event_type, state, now()-query_start as elapsed, REGEXP_REPLACE(query, E'[\\r\\n]+', ' ', 'g') from pg_stat_activity WHERE now() - query_start > interval '${LRQ_threshold} hours'" > /tmp/${FUNCNAME[0]}.log
+  local tmpfile=$(mktemp)
+  for p in $(cat /tmp/${FUNCNAME[0]}.log | cut -d, -f2 | awk -F'[[:space:]_]+' '{print $3;}'); do
+    if [[ -e /proc/${p}/cmdline ]]; then
+      local cmdline="$(sudo tr '\0' ' ' < /proc/${p}/cmdline)"
+      local workflow workflow_activity_name='-'
+      [[ ${cmdline} =~ nlserver[[:space:]]+runwf[[:space:]] ]] && workflow=${cmdline##*-name:} && workflow=${workflow%% *}
+      [[ -n $workflow ]] && workflow_activity_name=$(${psql_log} -c "select sactivity from xtkworkflowtask where iworkflowid IN(select iworkflowid from xtkworkflow where sinternalname = '${workflow}') and tsrunning is not null order by tscreation DESC limit 1")
+      echo "$hi,\"${cmdline}\",${workflow_activity_name},$(( $(date +%s) - $(date -d "$(sudo ps -p ${p} -o lstart=)" +%s) ))"
+    else
+      echo "$hi,-,-,0"
+    fi
+  done > $tmpfile
+  paste -d, $tmpfile /tmp/${FUNCNAME[0]}.log
+  rm -f $tmpfile /tmp/${FUNCNAME[0]}.log
+}
+
+function findjQuery {
+  eval $(sudo camp-db-params -e)
+  echo -ne "$(hostname --fqdn),"
+  local count total
+  local psql_log='psql -Aqt --csv --pset=pager=off'
+  count=$($psql_log -c "SELECT count(1) AS d FROM xtkentity WHERE (sentityschema = 'xtk:jssp' OR sentityschema = 'xtk:javascript') AND (mdata::text ILIKE '%\$(%' OR mdata::text ILIKE '%jQuery(%')")
+  total=$($psql_log -c "SELECT count(1) AS d FROM xtkentity WHERE (sentityschema = 'xtk:jssp' OR sentityschema = 'xtk:javascript') AND mdata IS NOT NULL")
+  echo -ne "$count/$total,"
+
+  count=$($psql_log -c "SELECT count(1) AS d FROM XtkReport WHERE (mdata::text ILIKE '%\$(%' OR mdata::text ILIKE '%jQuery(%')")
+  total=$($psql_log -c "SELECT count(1) AS d FROM XtkReport  WHERE mdata IS NOT NULL")
+  echo -ne "$count/$total,"
+
+  count=$($psql_log -c "SELECT count(1) AS d FROM nmsincludeview WHERE (mdata::text ILIKE '%\$(%' OR mdata::text ILIKE '%jQuery(%')")
+  total=$($psql_log -c "SELECT count(1) AS d FROM nmsincludeview WHERE mdata IS NOT NULL")
+  echo -ne "$count/$total,"
+
+  count=$($psql_log -c "SELECT count(1) AS d FROM nmswebapp  WHERE (mdata::text ILIKE '%\$(%' OR mdata::text ILIKE '%jQuery(%')")
+  total=$($psql_log -c "SELECT count(1) AS d FROM nmswebapp WHERE mdata IS NOT NULL")
+  echo -ne "$count/$total"
+  echo
+}
+
+function getLRQReport {
+  local outFile=sample.tsv datFile='new_relic_LRQ.csv'
+  local LRQ_threshold=$1 # in hours
+  [[ $LRQ_threshold =~ ^([1-9][0-9]*)$ ]] || LRQ_threshold=4
+  local rptFolder="${CAMP_AC_ROOT}/../LRQ/Report_${LRQ_threshold}_$(date '+%d_%b_%H_%M_%S')"
+
+  mkdir -p ${rptFolder}
+  pushd ${rptFolder} > /dev/null
+  pwd
+
+  [[ -f ~/Downloads/Long-Queries-\[+-${LRQ_threshold}-Hours].csv ]] && mv ~/Downloads/Long-Queries-\[+-${LRQ_threshold}-Hours].csv ${datFile}
+  [[ -f ${datFile} ]] || {
+    local nrqlQueryToFetchLongPendingQueries="SELECT max(query_duration_in_seconds /3600) AS Elapsed_in_hours, latest(long_query) AS Query FROM Postgres  WHERE queryName = 'PG_LONG_RUNNING_QUERY' and linuxDistribution LIKE '%Debian%'  AND hostname LIKE '%prod%' AND  query_duration_in_seconds > $[${LRQ_threshold}*3600] FACET hostname,process_id since 1 hour ago LIMIT MAX"
+    nrql "${nrqlQueryToFetchLongPendingQueries}" | jq -r '
+    ["Hostname", "Process ID", "Elapsed_in_hours", "Query"],
+    (.data.actor.account.nrql.results[] |
+      [ .facet[0],
+        .facet[1],
+        (.Elapsed_in_hours * 100 | floor / 100),
+        .Query
+      ]
+    ) | @csv' > ${datFile}
+  }
+  [[ -s ${datFile} ]] || { echo "Newrelic query data not available"; return 1; }
+
+  echo "hostname,acc_build,cmdline,workflow_activity,process_uptime_seconds,postgres_pid,application_name,client_addr,wait_event,wait_event_type,state,query_elapsed_time,query_text" | tee ${outFile}
+  for h in $(tail -n +2 ${datFile} | dos2unix | awk -F, '{print $1;}' | sed -r 's,[^[:alnum:]._-],,g' | sort | uniq | getAllHostedInstances mkt prod '!^sf' '!_' '!test' '!\-stage' '!\-dev' | grep -v -E "^[0-9a-f\-]{24,}-mkt.*") ; do
+    rfexec -l ${h/_/-}.${HOSTED_CAMPAIGN_DOMAIN} findLongRunningQueryInfo ${LRQ_threshold}
+  done | tee -a ${outFile}
+
+  { type -p mlr && mlr --version && mlr help topics; } > /dev/null 2>&1
+  if [[ $? -eq 0 ]]; then
+#  local l_TZ="${TZ}" TZ='Local'
+  mlr --csv reorder -f hostname,application_name,acc_build ${outFile} | mlr --csv sort -f state | mlr --csv put '
+    $process_uptime_seconds = int($process_uptime_seconds);
+    $process_uptime_seconds = int($process_uptime_seconds / 86400) . "d " . int($process_uptime_seconds % 86400 / 3600) . "h " . int($process_uptime_seconds % 3600 / 60) . "m " . int($process_uptime_seconds % 60) . "s";
+  ' | mlr --csv --opprint cat > ${outFile%.*}_mlr.${outFile##*.}
+  outFile=${outFile%.*}_mlr.${outFile##*.}
+  else
+    echo "Could not generate mlr formatted tabular report output." | STDWARN
+  fi
+  echo "Output collected in ${PWD}/${outFile}"
+ # TZ="${l_TZ}"
+  popd > /dev/null
+  date '+%d_%b_%H_%M_%S'
+}
+
+function rfexec {
+  local printHelp=1 allContainers as_user exec_cmd_is_local_func optArgs=0
+  _MATCHES ^-u "$@" && as_user='neolane' && optArgs=$[$optArgs+1]
+  _MATCHES ^-l "$@" && exec_cmd_is_local_func=1 && optArgs=$[$optArgs+1]
+  _MATCHES ^-a "$@" && allContainers=1 && optArgs=$[$optArgs+1]
+  shift ${optArgs}
+
+  _MATCHES ^-h "$@" || [[ $# -lt 2 ]] || unset printHelp
+  if [[ -n $printHelp ]]; then
+    as_user=${as_user:='neolane'}
+    echo "${YELLOW_COL}Usage${RESET_COL}:  ${FUNCNAME[0]} [OPTIONS] <remote-dest-host> function [args ...]
+    -h(elp)           This help documentation.
+    -a                ${YELLOW_COL}Optional${RESET_COL}  : Execute on 'all' containers. Default is off.
+    -l                ${YELLOW_COL}Optional${RESET_COL}  : Arg(s) after <remote-dest-host> body of a local function executing on remote.
+    -u                ${YELLOW_COL}Optional${RESET_COL}  : Execute as '${as_user}' user.
+    remote-dest-host  ${YELLOW_COL}Mandatory${RESET_COL} : Remote host on which to execute the function.
+    " | STDERR
+    return 0
+  fi
+
+  local rhost=$1
+  shift
+  rhost=$(echo $rhost | sed -r 's,^(.*:[/]+)([-\.[:alnum:]]+)[/]*.*,\2,g')
+  local domain=${rhost#*.}
+  [[ ${domain} = ${rhost} ]] && domain=${HOSTED_CAMPAIGN_DOMAIN}
+  rhost=${rhost%%.*}
+  local opipefailVal='+' iRc
+  [[ X$(set -o | grep pipefail | tr -s '[:blank:]' | cut -f2) = "Xon" ]] && opipefailVal='-'
+  set -o pipefail
+  soap_rtest ${rhost}.${domain} | xmlize > $TMP/rhostInfo.xml
+  iRc=$?
+  set ${opipefailVal}o pipefail
+
+  [[ $iRc -eq 0 ]] || { echo "${RED_COL}ALERT:${RESET_COL} Error getting information from ${YELLOW_COL}${rhost}.${domain}${RESET_COL}" | STDERR; return 1; }
+  local func_body precmd cmd
+  if [[ ! -z ${exec_cmd_is_local_func} ]]; then
+    local func_name=$1
+    shift
+    load ${func_name}
+    iRc=$?
+    if [[ $iRc -eq 0 ]]; then
+      func_body="$(cat /tmp/loadedfunction.sh | gzip | base64 -w 0)"
+    else
+      local l_type=$(type -t $func_name 2> /dev/null)
+      iRc=$?
+      [ $iRc -eq 0 ] && { [[ $l_type = 'function' ]] || iRc=1; }
+      [ $iRc -eq 0 ] || { return $(echo "$(errno ENOSYS) : $func_name" | tee /dev/tty | awk '{print $2}'); }
+      func_body="$({ echo "function ${func_name}" ; type ${func_name} | tail -n +3; } | gzip | base64 -w 0)"
+    fi
+    precmd="echo '${func_body}' | base64 -d | zcat > /tmp/$(whoami).sh; "
+    cmd="source /tmp/$(whoami).sh; ${func_name} $@"
+  else
+    cmd="$@"
+  fi
+  if [[ -n $as_user ]]; then
+    if [[ -z ${exec_cmd_is_local_func} ]]; then
+      cmd="sudo su - ${as_user} -c 'source ~/nl6/env.sh > /dev/null 2>&1 && ${cmd}'"
+    else
+      cmd="$precmd sudo su - ${as_user} -c 'source ~/nl6/env.sh > /dev/null 2>&1 && ${cmd}'"
+    fi
+  else
+    cmd="${precmd}${cmd}"
+  fi
+  if [[ -z $allContainers ]]; then
+    sshr ${rhost}.${domain} "${cmd}" 2>/dev/null | sed -ne "/LOG OFF/,/Connection to ${rhost}/{//!p;}"
+  else
+    execute_containers ${rhost}.${domain} "${cmd}"
+  fi
+}
+
+function upload_symbols {
+  local printHelp=1 allContainers apacheModule optArgs=0
+  _MATCHES ^-h "$@" || [[ $# -lt 1 ]] || [[ $# -gt 3 ]] || unset printHelp
+  _MATCHES ^-a "$@" && optArgs=$[${optArgs}+1] && allContainers=1
+  _MATCHES ^-w "$@" && optArgs=$[${optArgs}+1] && apacheModule=1
+  shift ${optArgs}
+  if [[ -n $printHelp ]]; then
+      echo "${YELLOW_COL}Usage${RESET_COL}:  ${FUNCNAME[0]} [OPTION] <remote-dest-host>
+        -h                This help documentation.
+        -a                ${YELLOW_COL}Optional${RESET_COL}  : Upload to 'all' containers. Default is off.
+        -w                ${YELLOW_COL}Optional${RESET_COL}  : Upload apache module symbols. Default is no/off.
+        remote-dest-host  ${YELLOW_COL}Mandatory${RESET_COL} : Remote host on which to eventually copy the file to.
+        " | STDERR
+      return 0
+  fi
+
+  local rhost=$1
+  shift
+  rhost=$(echo $rhost | sed -r 's,^(.*:[/]+)([-\.[:alnum:]]+)[/]*.*,\2,g')
+  local domain=${rhost#*.}
+  [[ ${domain} = ${rhost} ]] && domain=${HOSTED_CAMPAIGN_DOMAIN}
+  rhost=${rhost%%.*}
+
+  local opipefailVal='+' iRc
+  [[ X$(set -o | grep pipefail | tr -s '[:blank:]' | cut -f2) = "Xon" ]] && opipefailVal='-'
+  set -o pipefail
+  local hI=$TMP/${FUNCNAME[0]}_rhostInfo.xml
+  soap_rtest ${rhost}.${domain} | xmlize > $hI
+  iRc=$?
+  set ${opipefailVal}o pipefail
+
+  [[ $iRc -eq 0 ]] || { echo "${RED_COL}ALERT:${RESET_COL} Error getting information from ${YELLOW_COL}${rhost}.${domain}${RESET_COL}" | STDERR; return 1; }
+  local osStr=$({ sshr ${rhost}.${domain} 'cat /etc/os-release' | grep ID; } 2>/dev/null | awk -F"=" '{print $2;}' | sed 's,",,g' | sort -r | colrm 4 | tr -d '\r' | tr -d '\n')
+  [[ -z $osStr ]] && { echo "${RED_COL}ALERT:${RESET_COL} Error getting OS Version from ${YELLOW_COL}${rhost}.${domain}${RESET_COL}" | STDERR; return 1; }
+  local symbolFile=$(SEARCH_ONE_BUILD=1 searchBuild $(getXMLAttrVal redir sha1 $hI) $(getXMLAttrVal redir version $hI) $(getXMLAttrVal redir build $hI) ${osStr} dbg nlserver | grep -E "^file://" | sed -r 's,^file://,,g')
+  echo $symbolFile
+  local libnlsrvmod_sym
+  [[ -n ${apacheModule} ]] && libnlsrvmod_sym=$(SEARCH_ONE_BUILD=1 searchBuild $(getXMLAttrVal redir sha1 $hI) $(getXMLAttrVal redir version $hI) $(getXMLAttrVal redir build $hI) ${osStr} dbg libnlsrvmod | grep -E "^file://" | sed -r 's,^file://,,g') && echo $libnlsrvmod_sym
+
+  download https://raw.githubusercontent.com/hardeepparmar/shmcat/refs/heads/master/shmcat.c /tmp/shmcat.c
+  if [[ -z $allContainers ]]; then
+    scpToRemote ${rhost}.${domain} $symbolFile $libnlsrvmod_sym /tmp/shmcat.c
+    rfexec -l ${rhost}.${domain} processSymbols ${symbolFile##*/} ${libnlsrvmod_sym##*/}
+  else
+    local ctCount=1 startCt=1
+    [[ $rhost =~ ^(.*[[:alnum:]])-([[:digit:]])$ ]] && { rhost=${BASH_REMATCH[1]}; startCt=${BASH_REMATCH[2]}; ctCount=${startCt}; } || ctCount=$(containers $rhost)
+    for c in $(seq ${startCt} 1 ${ctCount}); do
+      scpToRemote ${rhost}-${c}.${domain} $symbolFile $libnlsrvmod_sym /tmp/shmcat.c
+      echo "Connection to ${rhost}-${c}.${domain} closed." | STDINFO
+    done 2>/dev/null | sed -ne "/LOG OFF/,/Connection to ${rhost}/{//!p;}"
+    rfexec -a -l ${rhost}.${domain} processSymbols ${symbolFile##*/} ${libnlsrvmod_sym##*/}
+  fi
+}
+
 function testACC
 {
     local iRc=0
@@ -8847,6 +10186,7 @@ function testACC
     [[ $iRc -eq 0 ]] && [[ ! -z ${integroTestName} ]] && runintegrotests -q $integroTestName && iRc=$?
     return $iRc
 }
+
 function findErroneousCommit {
     _CONTAINS -h "$@" || [[ $# -lt 2 ]] && echo "${YELLOW_COL}Usage:${RESET_COL}  ${FUNCNAME[0]} [ -h(elp) ] good-commit bad-commit [branch] [-a] autotest-id [-i] integro-test-id" && return 1
     local iRc
@@ -8894,6 +10234,7 @@ function findErroneousCommit {
     git bisect reset
     popd
 }
+
 function findStringOccurances {
   local verbose lookInJSFiles help
   [[ $# -eq 0 ]] && help=1
@@ -8950,7 +10291,7 @@ function runintegrotests {
     pushd .
     local iRc=0
     wcinstall maven $@
-    local cpCmd="$(which cp) -f -p "
+    local cpCmd="$(type -P cp) -f -p "
     2integro
     ${cpCmd} $TEAM_SHARE_LOCATION/mvn/settings.xml .mvn/
     local mvnArgs='-DskipTests'
@@ -8977,11 +10318,14 @@ function runintegrotests {
 function runautotests {
   local AUTOTEST_ROOT="$(getCampRoot)/nl/test/autotest/"
   if _CONTAINS -h "$@" || [ $# -eq 0 ]; then
-    echo "${YELLOW_COL}Usage:${RESET_COL} ${FUNCNAME[0]} <test path relative to ${AUTOTEST_ROOT}tests> { e.g [all] ['*'] [function/001-digest] [fwk/*] [path2] ... [pathN] } [-ffda [runid]]"
+    echo "${YELLOW_COL}Usage:${RESET_COL} ${FUNCNAME[0]} <test path relative to ${AUTOTEST_ROOT}tests>  [-instance:<instance-name>] { e.g [all] ['*'] [function/001-digest] [fwk/*] [path2] ... [pathN] } [-ffda [runid]]"
     return 1;
   fi
   local iRc=0
   local isFFDA runid
+  local extraflags
+  _CONTAINS -v "$@" && extraflags='-verbose'
+  getSecretPassword
   _CONTAINS -ffda "$@" && isFFDA=1 && runid=${_KEY_HAS_VALUE -ffda $@} && ${runid}=$(whoami)_autotest_$(date '+%d%b%Y_%H_%M_%S') && read -p "Using runid ${runid}... Press Ctrl+C to abort or any other key to continue." yn
   local encrypted_SF_Password='ENmQqnMbQ1FODPNcK/RQi4lNYmtc9YcC2QH1DhspiBk=' # I...c
   # ${OPENSSL_BIN} enc -e -pbkdf2 -base64 -aes-256-cbc -nosalt -pass pass:${SECRET_PASSWORD}
@@ -8998,9 +10342,9 @@ function runautotests {
     [[ ${test,,} = 'all' ]] && testname='/*'
     if [[ ${testname} =~ "*" ]] || [[ -f ${AUTOTEST_ROOT}tests/${testname}.js ]] || [[ -d ${AUTOTEST_ROOT}tests/${testname} ]]; then
        if [[ -z ${isFFDA} ]]; then
-        nls javascript ${l_instance} -arg:${testname} -file main.js | tee /tmp/autotest.log
+        nls javascript ${extraflags} ${l_instance} -arg:${testname} -file main.js | tee /tmp/autotest.log
        else
-        ${AUTOTEST_ROOT}../full-test/client-test.sh -n ${runid} -s $(hostname --fqdn) -a ${DEFAULT_PASSWORD} -user ${PGUSER} -u ${DEFAULT_PASSWORD} -pf snowflake -sf FullFda_snowflake -logfile /tmp/${runid}.xml -sf_t ${runid} -sf_p ${SF_Password} -sf_region "campaign_dev_adobe.east-us-2.azure" -mp 8080 -t ${testname}
+        ${AUTOTEST_ROOT}../full-test/client-test.sh -n ${runid} -s $(hostname --fqdn) -a ${DEFAULT_PASSWORD} -user ${PGUSER} -u ${DEFAULT_PASSWORD} -pf snowflake -sf FullFda_snowflake -logfile /tmp/${runid}.xml -sf_t ${runid} -sf_p ${SF_Password} -sf_region "campaign_dev_adobe.east-us-2.azure" -mp 8080 -t ${testname} ${extraflags}
        fi
        iRc=$?
        local nFails=$(cat /tmp/autotest.log | tail | grep -i -E "(Failures:|Errors:)" | awk '{print $4;}' | d2u | xargs | sed 's/\ /+/g' | bc)
@@ -9029,12 +10373,12 @@ function runFakeSmtpServer {
     pushd ${product}
     git pull
     mvn package -Dmaven.test.skip
-    local cpCmd="$(which cp) -f -p "
+    local cpCmd="$(type -P cp) -f -p "
     ${cpCmd} target/${smtpExecutable} /usr/local/bin
     popd > /dev/null 2>&1
     popd > /dev/null 2>&1
   fi
-  smtpExecutable="$(getPlatformPath $(which ${smtpExecutable}))${smtpExecutable}"
+  smtpExecutable="$(getPlatformPath $(type -P ${smtpExecutable}))${smtpExecutable}"
   mkdir -p /tmp/$(getCampaignInstance)/smtpOut
   local SMTP_HOST=$(hostname --fqdn)
   local SMTP_PORT=25
@@ -9050,12 +10394,9 @@ function runFakeSmtpServer {
   echo "${GREEN_COL}INFO:${RESET_COL} Back-up campaign config file(s) to ${backUpDir} folder."
   mkdir -p ${backUpDir}
   cp -p -v -i $(getCampRoot)/nl/build/ncs/conf/*.xml ${backUpDir}/
+  configureAdobeEmailServer - '*'
   updateXMLAttr $(getCampRoot)/nl/build/ncs/conf/serverConf.xml relay address $SMTP_HOST
   updateXMLAttr $(getCampRoot)/nl/build/ncs/conf/serverConf.xml relay port $SMTP_PORT
-  for inst in $(getCampInstances); do
-    updateXMLAttr $(getCampRoot)/nl/build/ncs/conf/config-${inst}.xml smtp enableTLS false
-    updateXMLAttr $(getCampRoot)/nl/build/ncs/conf/config-${inst}.xml IP authentication ""
-  done
   nls config -reload
 }
 function runFakeSmppServer {
@@ -9072,7 +10413,7 @@ function runFakeSmppServer {
     if ! exec_command_exists unzip; then
       aptS install unzip zip
     fi
-    local cpCmd="$(which cp) -f ${1} "
+    local cpCmd="$(type -P cp) -f ${1} "
     ${cpCmd} ${TEAM_SHARE_LOCATION}${pathSep}${fileToDownload} .
     smppExecutable=$(unzip -o $fileToDownload | grep inflating | grep -i startsmpp  | grep -i ${extension} | head -n 1 | cut -d ':' -f2 | xargs)
     local SMPP_USER=smppclient
@@ -9082,6 +10423,12 @@ function runFakeSmppServer {
     sed -r -i "s|^\s*OUTBIND_ESME_SYSTEMID\s*=.*|OUTBIND_ESME_SYSTEMID=${SMPP_USER}|g" ./SMPPSim/conf/smppsim.props
     sed -r -i "s|^\s*PASSWORDS\s*=.*|PASSWORDS=${DEFAULT_PASSWORD}|g" ./SMPPSim/conf/smppsim.props
     sed -r -i "s|^\s*OUTBIND_ESME_PASSWORD\s*=.*|OUTBIND_ESME_PASSWORD=${DEFAULT_PASSWORD}|g" ./SMPPSim/conf/smppsim.props
+
+    echo "${GREEN_COL}INFO:${RESET_COL} Configuring Fake SMPP servers to simulate Rejects(15%), Accepeted(25%) and Undelivered(20%) SMSes..."
+    sed -r -i "s|^\s*PERCENTAGE_DELIVERED\s*=.*|PERCENTAGE_DELIVERED=40|g" ./SMPPSim/conf/smppsim.props
+    sed -r -i "s|^\s*PERCENTAGE_UNDELIVERABLE\s*=.*|PERCENTAGE_UNDELIVERABLE=20|g" ./SMPPSim/conf/smppsim.props
+    sed -r -i "s|^\s*PERCENTAGE_ACCEPTED\s*=.*|PERCENTAGE_ACCEPTED=25|g" ./SMPPSim/conf/smppsim.props
+    sed -r -i "s|^\s*PERCENTAGE_REJECTED\s*=.*|PERCENTAGE_REJECTED=15|g" ./SMPPSim/conf/smppsim.props
   fi
   echo "Starting SMPP SIM server ..."
   if isCygwin; then
@@ -9098,7 +10445,7 @@ function runFakeSmppServer {
 }
 
 function runInMailServer {
-  isCygwin || { echo "${FUNCNAME[0]} Not available on $(getOS)" | STDERR || return $?; }
+  isCygwin || { echo "'${FUNCNAME[0]}' Not available on $(getOS)" | STDERR || return $?; }
   type pop3 > /dev/null 2>&1
   if [[ $? -ne 0 ]]; then
     pushd $TMP > /dev/null
@@ -9142,8 +10489,22 @@ function runInMailServer {
   nls config -reload
   launch pop3
 }
+function runCursorChatBrowser {
+  pushd $CAMP_AC_ROOT/..
+  [[ -d cursor-chat-browser ]] || git clone https://github.com/thomas-pedersen/cursor-chat-browser.git
+  cd cursor-chat-browser
+  git checkout -f main
+  git pull
+  npm install
+  npm outdated
+  npm update
+  launch npm run dev
+  echo "Open CursorCharBrowser @  http://localhost:3000"
+  openInUIWindow http://localhost:3000
+  popd > /dev/null
+}
 function registerWithWindowsCredentialManager {
-    isCygwin || { echo "${FUNCNAME[0]} Not available on $(getOS)" | STDERR || return $?; }
+    isCygwin || { echo "'${FUNCNAME[0]}' Not available on $(getOS)" | STDERR || return $?; }
     local l_Server='TERMSRV/psmdirect.corp.adobe.com'
     if _CONTAINS -h "$@"; then
       echo "${YELLOW_COL}Usage:${RESET_COL}:  ${FUNCNAME[0]} [-h (help)] [server-host(default ${l_Server})] ..."
@@ -9152,12 +10513,12 @@ function registerWithWindowsCredentialManager {
     [[ -z $1 ]] || l_Server=$(echo $1 | sed -r 's,^(.*:[/]+)([-\.[:alnum:]]+)[/]*.*,\2,g')
     if [[ $PWSHELL_VERSION =~ ^5 ]]; then
     local install_CredentialManager_Cmd="-Command Install-Module -Name CredentialManager; Import-Module CredentialManager"
-    wps -Command "Start-Process $PWSHELL  -ArgumentList \"${install_CredentialManager_Cmd}\" -Verb RunAs"
+    wps -Command "Start-Process $PWSHELL  -ArgumentList \"${install_CredentialManager_Cmd}\" -Wait -Verb RunAs"
   else
     local install_CredentialManager_Cmd="-Command Install-Module -Name CredentialManager"
-    wps -Command "Start-Process $PWSHELL  -ArgumentList \"${install_CredentialManager_Cmd}\" -Verb RunAs; Import-Module CredentialManager"
+    wps -Command "Start-Process $PWSHELL  -ArgumentList \"${install_CredentialManager_Cmd}\" -Wait -Verb RunAs; Import-Module CredentialManager"
     install_CredentialManager_Cmd="-Command Install-Module -Name TUN.CredentialManager"
-    wps -Command "Start-Process $PWSHELL  -ArgumentList \"${install_CredentialManager_Cmd}\" -Verb RunAs; Import-Module TUN.CredentialManager"
+    wps -Command "Start-Process $PWSHELL  -ArgumentList \"${install_CredentialManager_Cmd}\" -Wait -Verb RunAs; Import-Module TUN.CredentialManager"
   fi
   local LDAP_PASS
   echo "Storing credentials in your Windows credential manager..."
@@ -9166,7 +10527,7 @@ function registerWithWindowsCredentialManager {
     read -s -p "Enter ADOBENET LDAP Password:$(echo -e '\U0001F512')" LDAP_PASS
     if [[ ${#LDAP_PASS} -ge 8 ]]; then
       local storeCredential_Cmd="-Command New-StoredCredential -Target '${l_Server}' -Type Generic -UserName '$(whoami)' -Password '${LDAP_PASS}' -Persist 'LocalMachine'"
-      wps -Command "Start-Process $PWSHELL  -ArgumentList \"${storeCredential_Cmd}\" -Verb RunAs"
+      wps -Command "Start-Process $PWSHELL  -ArgumentList \"${storeCredential_Cmd}\" -Wait -Verb RunAs"
       openssl dgst <<<${LDAP_PASS}
       saveCreds=1
     else
@@ -9174,14 +10535,14 @@ function registerWithWindowsCredentialManager {
         if [[ $? -eq 0 ]]; then
           true
         else
-          echo ""
+          echo
           saveCreds=0
         fi
     fi
   done
 }
 function fixrdp {
-    isCygwin || { echo "${FUNCNAME[0]} Not available on $(getOS)" | STDERR || return $?; }
+    isCygwin || { echo "'${FUNCNAME[0]}' Not available on $(getOS)" | STDERR || return $?; }
     if _CONTAINS -h "$@" || [[ $# -eq 0 ]]; then
       echo "${YELLOW_COL}Usage:${RESET_COL}:  ${FUNCNAME[0]} [-h (help)] <rdp-file> ..."
       return 0
@@ -9244,10 +10605,10 @@ function onChangeVpnStatus {
   if [[ ! -z "${1}" ]] && [[ "${1}" -eq 1 ]]; then
     local SSHD_PID=$(ps -e | grep sshd |  sed -r 's/[[:space:]]+/ /g' | cut -d ' '  -f2) && [[ ! -z ${SSHD_PID} ]] && kill -TERM ${SSHD_PID}
     local restart_cygwin_sshd_Cmd="-Command Restart-Service -Name cygsshd"
-    wps -Command "Start-Process $PWSHELL  -ArgumentList \"${restart_cygwin_sshd_Cmd}\" -WindowStyle hidden -Verb RunAs"
+    wps -Command "Start-Process $PWSHELL  -ArgumentList \"${restart_cygwin_sshd_Cmd}\" -Wait -WindowStyle hidden -Verb RunAs"
   else
     local stop_cygwin_sshd_Cmd="-Command Stop-Service -Name cygsshd"
-    wps -Command "Start-Process $PWSHELL  -ArgumentList \"${stop_cygwin_sshd_Cmd}\" -WindowStyle hidden -Verb RunAs"
+    wps -Command "Start-Process $PWSHELL  -ArgumentList \"${stop_cygwin_sshd_Cmd}\" -Wait -WindowStyle hidden -Verb RunAs"
     local SSHD_PID=$(ps -e | grep sshd |  sed -r 's/[[:space:]]+/ /g' | cut -d ' '  -f2) && [[ ! -z ${SSHD_PID} ]] && kill -TERM ${SSHD_PID}
     /usr/sbin/sshd
   fi
@@ -9282,8 +10643,8 @@ function monitor {
   local localHostsFile="/tmp/.hosts.txt"
   local hostnameLocal=$(hostname --fqdn)
 #  local prevVPNStatus=1
-  local cpCmd="$(which cp) -f ${1} "
-  local mvCmd="$(which mv) -f ${1} "
+  local cpCmd="$(type -P cp) -f ${1} "
+  local mvCmd="$(type -P mv) -f ${1} "
   local wait_time checkUACAndFirewallTimer
   fetchEnvInfo
   fetchVPNState
@@ -9298,7 +10659,7 @@ function monitor {
         remoteHostsFile="${TEAM_SHARE_CACHE}hosts.txt"
         remoteHostsFile="$(realpath -m ${remoteHostsFile})"
       fi
-      ! isHostAlive ${DB_SERVER} && export DB_SERVER="hparmar-win10-vpc.${ADOBE_CORP_DOMAIN}" && getDatabaseType
+      ! isHostAlive ${DB_SERVER} && export DB_SERVER="hparmar-win10-vpc.${ADOBE_CORP_DOMAIN}" && getDatabaseType ${PGPASSWORD:=${DEFAULT_PASSWORD}}
       if [[ -f $remoteHostsFile ]]; then
         # [[ $prevVPNStatus -eq 0 ]] && onChangeVpnStatus 1
         # prevVPNStatus=1
@@ -9421,7 +10782,7 @@ trap on_exit EXIT
 # trap on_exit SIGHUP
 # trap on_exit SIGTERM
 function installPostgres {
-  isCygwin || { echo "${FUNCNAME[0]} Not available on $(getOS)" | STDERR || return $?; }
+  isCygwin || { echo "'${FUNCNAME[0]}' Not available on $(getOS)" | STDERR || return $?; }
   _CONTAINS -h "$@" && echo "${YELLOW_COL}Usage:${RESET_COL}  ${FUNCNAME[0]} [ -h(elp) -f(force) | 9 | 10 | 12 | 14 | 15 ] -- Installs PostgreSQL server of given major version." && return
   pushd /tmp
   # download https://get.enterprisedb.com/postgresql/postgresql-12.6-1-windows-x64.exe
@@ -9464,7 +10825,7 @@ function installPostgres {
   wps -Command "Start-Process $PWSHELL  -ArgumentList \"${restart_postgres_Cmd}\" -Wait -Verb RunAs"
   local old_db_server=${DB_SERVER}
   unset DB_SERVER
-  getDatabaseType
+  getDatabaseType ${PGPASSWORD:=${DEFAULT_PASSWORD}}
   csql -V -d postgres
   if [ $? -ne 0 ]; then
     echo "Please open ${OSTYPE} again after ensuring psql installed and available in PATH."
@@ -9504,13 +10865,13 @@ function installPostgres {
   LANGUAGE plpgsql IMMUTABLE;  select 'isNumeric called on ''-123'' returned '|| IsNumeric('-123'), 'isNumeric called on ''abc'' returned '||IsNumeric('abc');")
   wps -Command "Start-Process $PWSHELL  -ArgumentList \"${restart_postgres_Cmd}\" -Wait -Verb RunAs"
   DB_SERVER=${old_db_server}
-  getDatabaseType
+  getDatabaseType ${PGPASSWORD:=${DEFAULT_PASSWORD}}
   csql -V -d postgres
   cacheEnvVar -f DB_SERVER
   popd
 }
 function installSnowflakeOdbcDriver {
-  isCygwin || { echo "${FUNCNAME[0]} Not available on $(getOS)" | STDERR || return $?; }
+  isCygwin || { echo "'${FUNCNAME[0]}' Not available on $(getOS)" | STDERR || return $?; }
   pushd /tmp
   local snowflakeOdbcDriver
   toggleXMLLintUse
@@ -9526,7 +10887,7 @@ function installSnowflakeOdbcDriver {
   popd
 }
 function installsqlcmdClient {
-  isCygwin || { echo "${FUNCNAME[0]} Not available on $(getOS)" | STDERR || return $?; }
+  isCygwin || { echo "'${FUNCNAME[0]}' Not available on $(getOS)" | STDERR || return $?; }
   pushd /tmp
   download https://go.microsoft.com/fwlink/?linkid=2239168 msodbcsql.msi
   echo "Installing Microsoft ODBC Driver 17 for SQL Server (x64) ..."
@@ -9536,7 +10897,7 @@ function installsqlcmdClient {
   popd
 }
 function disableUACAndFirewall {
-  isCygwin || { echo "${FUNCNAME[0]} Not available on $(getOS)" | STDERR || return $?; }
+  isCygwin || { echo "'${FUNCNAME[0]}' Not available on $(getOS)" | STDERR || return $?; }
   local uac_query_cmd='(Get-ItemProperty -Path "HKLM:\Software\Microsoft\Windows\CurrentVersion\Policies\System" -Name "ConsentPromptBehaviorAdmin").ConsentPromptBehaviorAdmin'
 #  [[ 0 -eq $(REG QUERY 'HKLM\Software\Microsoft\Windows\CurrentVersion\Policies\System' /v ConsentPromptBehaviorAdmin | tail -2 | head -1 | rev | cut -d ' ' -f1 | h2d) ]] && return
   [[ $(trim $(wps -Command ${uac_query_cmd})) -eq 0 ]] || {
@@ -9546,7 +10907,7 @@ function disableUACAndFirewall {
   wps -Command "Start-Process -WindowStyle Hidden $PWSHELL  -ArgumentList '-Command \"${disableFW_Command}\"' -Verb RunAs"
 }
 function captureScreen {
-  isCygwin || { echo "${FUNCNAME[0]} Not available on $(getOS)" | STDERR || return $?; }
+  isCygwin || { echo "'${FUNCNAME[0]}' Not available on $(getOS)" | STDERR || return $?; }
   local larg=${1,,}
   local captureScreen=0
   local captureVideo=0
@@ -9593,7 +10954,7 @@ function captureScreen {
   return $iRc
 }
 function getDebugSymbolPath {
-  isCygwin || { echo "${FUNCNAME[0]} Not available on $(getOS)" | STDERR || return $?; }
+  isCygwin || { echo "'${FUNCNAME[0]}' Not available on $(getOS)" | STDERR || return $?; }
   local instanceName
   while [[ "$#" -gt 0 ]]; do
       case $1 in
@@ -9715,7 +11076,7 @@ function generateHits {
     successCount=$[${totalHits}-$(wc -l < $badURLogFile)]
     printf "\r${GREEN_COL}INFO:${RESET_COL} $(date '+%H:%M:%S %p : ')Processed ${YELLOW_COL} %9d ${RESET_COL} Hits ...Success ${GREEN_COL} %9d ${RESET_COL}" ${totalHits} ${successCount}
   done
-  echo ""
+  echo
   echo "${GREEN_COL}INFO:${RESET_COL} Total = ${totalHits} : Success = ${successCount} ($(printf %.3f $(echo "${successCount} / ${totalHits} * 100" | bc -l)) %)" && [[ ${totalHits} -gt ${successCount} ]] && echo "Ref ${TEMP}/badurls.log(Format url :: cURL Error code :: HTTP_RET_CODE) for List of Bad Urls"
 }
 function csql {
@@ -9757,7 +11118,7 @@ _TE bashrc_script $LINENO
 ##############################################################################
 [[ $(( BOOT_OPTIONS & 1 )) -ne 0 ]] && setupOS
 [[ $(( BOOT_OPTIONS & 2 )) -ne 0 ]] && welcome &
-[[ $(( BOOT_OPTIONS & 4 )) -ne 0 ]] && getDatabaseType &
+[[ $(( BOOT_OPTIONS & 4 )) -ne 0 ]] && getDatabaseType ${PGPASSWORD:=${DEFAULT_PASSWORD}} &
 _TE bashrc_script $LINENO
 # isCygwin && renice -n -20 -p ${BASHPID} > /dev/null || sudo renice -n -20 -p ${BASHPID} > /dev/null
 initBuildEnv > /dev/null
@@ -9775,12 +11136,12 @@ if [[ ${BOOT_OPTIONS} -ne 0 ]]; then
   # cacheEnvVar -r PGPORT
   # cacheEnvVar -r PGHOST
   [[ -f ~/.before.sh ]] &&  source ~/.before.sh
-  [[ $(( BOOT_OPTIONS & 4 )) -ne 0 ]] && ! isHostAlive ${DB_SERVER} && export DB_SERVER="hparmar-win10-vpc.${ADOBE_CORP_DOMAIN}" && echo "Checking connection to database server..." && getDatabaseType
+  [[ $(( BOOT_OPTIONS & 4 )) -ne 0 ]] && ! isHostAlive ${DB_SERVER} && export DB_SERVER="hparmar-win10-vpc.${ADOBE_CORP_DOMAIN}" && echo "Checking connection to database server..." && getDatabaseType ${PGPASSWORD:=${DEFAULT_PASSWORD}}
   if [[ -z ${DBMS_TYPE} ]] || [[ -z ${PGHOST} ]]; then
     echo "${BOLD}Database Server ${DB_SERVER} not reachable." | STDERR
   else
-    export DB_SERVER=${PGHOST}
-    [[ ! -z $PGPORT ]] && DB_SERVER=${DB_SERVER}:${PGPORT}
+    # export DB_SERVER=${PGHOST}
+    # [[ ! -z $PGPORT ]] && DB_SERVER=${DB_SERVER}:${PGPORT}
     echo "Using Database ${YELLOW_COL}${DBMS_TYPE}${RESET_COL} version ${YELLOW_COL}${DBMS_VERSION}${RESET_COL} on ${YELLOW_COL}${PGHOST}${RESET_COL}"
   fi
   echo "ACC Dev setup is ready. Git Branch: ${YELLOW_COL}${CUR_CAMP_GIT_BRANCH}${RESET_COL}"
@@ -9838,7 +11199,7 @@ function openInUIWindow {
 function editor {
   if ! isCygwin; then
     if exec_command_exists code; then
-      _CONTAINS - "$@" && { local inp="$([[ -p /dev/stdin ]] && cat - || echo "")"; echo "${inp}" > /tmp/pipe2code.txt; DONT_PROMPT_WSL_INSTALL=1 code /tmp/pipe2code.txt; return; }
+      _CONTAINS - "$@" && { local inp="$([[ -p /dev/stdin ]] && cat - || echo)"; echo "${inp}" > /tmp/pipe2code.txt; DONT_PROMPT_WSL_INSTALL=1 code /tmp/pipe2code.txt; return; }
       local openAsSU
       local posN=1
       _CONTAINS -s "$@" && for f in $@; do [[ ! -w $f ]] && openAsSU=1; [[ X$f = X"-s" ]] && set -- "${@:1:posN-1}" "${@:posN+1}" && continue; posN=$[${posN}+1]; done
@@ -9849,15 +11210,19 @@ function editor {
       return
     fi
     echo $(readlink -f "$1") | grep -E '^/mnt' > /dev/null 2>&1
-    [[ $? -eq 0 ]] || { echo "${FUNCNAME[0]} Not available on $(getOS)" | STDERR || return 2; }
+    [[ $? -eq 0 ]] || { echo "'${FUNCNAME[0]}' Not available on $(getOS)" | STDERR || return 2; }
     ssh -4 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null $(getIP -wslhost) ${FUNCNAME[0]} $(echo $(readlink -f "$1") | sed -r 's,^/mnt,/cygdrive,')
     return $?
   fi
   local ed
+  [[ -n ${EDITOR} ]] && exec_command_exists ${EDITOR} && ed=${EDITOR}
+  [[ -z $ed ]] && exec_command_exists cursor && ed='cursor'
   [[ -z $ed ]] && exec_command_exists code && ed='code'
   [[ -z $ed ]] && exec_command_exists notepad++ && ed='notepad++'
   [[ -z $ed ]] && exec_command_exists sublime_text && ed='sublime_text'
-  if [ -z "$ed" ]; then
+  if [[ -n "$ed" ]] && exec_command_exists ${ed}; then
+    true
+  else
     ed="$(findW -u notepad++)"
     if [ -z "$ed" ]; then
       ed="$(findW -u sublime_text)"
@@ -9866,10 +11231,22 @@ function editor {
       ed="$(findW notepad)"
     fi
   fi
-  local posN=1
+  local posN=1 prefix='.'
   for i in "$@"; do
     if [[ "${i}" =~ [\\/]+ ||  ! "${i}" =~ ^-+ ]]; then
       local unixPath="$(cygpath -u "${i}")"
+      if [[ ! -e "$unixPath" ]]; then
+        echo "${RED_COL}ALERT: File ${YELLOW_COL}$unixPath${RESET_COL} does not seem to exist."
+        local l_prefix
+        if exec_command_exists rlwrap; then
+          prefix=$(rlwrap -n -S "Enter a suitable prefix path([${YELLOW_COL}${prefix}${RESET_COL}]):" -c -o cat)
+        else
+          read -p "Enter a suitable prefix path([${YELLOW_COL}${prefix}${RESET_COL}): " prefix
+        fi
+        prefix=${l_prefix:=${prefix}}
+        unixPath="$(eval "echo ${prefix}")/${unixPath}"
+#        echo "Using ${prefix} in ${unixPath} ..."
+      fi
       if [ -e "$unixPath" ]; then
         unixPath="$(readlink -f "${unixPath}")"
         local windowsPath="$(cygpath -w "${unixPath}")"
@@ -9904,7 +11281,7 @@ function nlclient {
 }
 
 function launchWSLDistro {
-  isCygwin || { echo "${FUNCNAME[0]} Not available on $(getOS)" | STDERR || return $?; }
+  isCygwin || { echo "'${FUNCNAME[0]}' Not available on $(getOS)" | STDERR || return $?; }
   local distros="$(wps -Command "wsl -l --all -v" | tr -d '\0')"
   distros=$(trim "${distros}")
   distros="$(echo "${distros}" | echo "${distros}" | tail -n +2 |  sed -r 's,^[\*[:space:]]*,,g' | awk '{print $1}')"
@@ -9921,7 +11298,10 @@ function launchWSLDistro {
   echo "${YELLOW_COL}wsl -d \"${1}\" -u root -e sh -c \"/usr/local/bin/wsl-netns.sh ${distroNum}\"${RESET_COL}"
   [[ -z donotExecute ]] && wsl -d "${1}" -u root -e sh -c "/usr/local/bin/wsl-netns.sh ${distroNum}"
 }
-
+function getSecretPassword {
+  [[ ! -z ${SECRET_PASSWORD} ]] || SECRET_PASSWORD=$(getVaultCreds bashrc | grep bashrc | awk '{print $2;}' | jq -r .SECRET_PASSWORD)
+  [[ $? -eq 0 ]] && echo ${SECRET_PASSWORD}
+}
 ###############################################################################
 # Common utility functions end here.
 ###############################################################################
@@ -9942,6 +11322,7 @@ function _get_hostname_completions {
 #      echo ${user_suggestion}
 #    fi
   fi
+  [[ ${user_suggestion:0:1} =~ [[:alnum:]] ]] || return
   if isCygwin; then
     { touch ~/.hosts; ipconfig /displaydns | grep --color=never -E 'Record Name.*[[:alpha:]][[:space:]]+$' | grep -v --color=never -E '.*\.arpa$' | tr -d '\r' | awk -F '[ :]' '{print $(NF);}' |  sort | uniq; cat ~/.hosts; } | sort | uniq > /tmp/.hosts;
   else
@@ -10062,6 +11443,7 @@ function _soapHost_completions {
   _CONTAINS -s ${arglist} || _CONTAINS -o ${arglist} && [[ ${#arglist[@]} -le 2 ]] && _get_vault_completions $@ && return
   _get_hostname_completions $@
 }
+
 __installStandardCampaignPackages_autocomplete()
 {
   local cur
@@ -10113,7 +11495,7 @@ __autotest_autocomplete()
 function 2web_ui {
   if isCygwin; then
     local nodePath
-    which node | grep '/nl/build' > /dev/null
+    type -P node | grep '/nl/build' > /dev/null
     [[ $? -eq 0 ]] && nodePath=$(trim "$(echo $PATH | tr ':' '\n' | grep "/cygdrive" | grep node | head -n 1)")
     [[ -z ${nodePath} ]] || export PATH="${nodePath}:${PATH}"
     echo "Using node version $(trim $(node --version)), Yarn version: $(trim $(yarn --version))"
@@ -10129,6 +11511,30 @@ function 2web_ui {
   launch yarn start:shell
   wps -Command "Start-Process 'https://experience-qa.${ADOBE_DOMAIN}/?shell_source=dev&shell_devmode=true#/@onlycampaign/so:accintg-dev90.rd${HOSTED_CAMPAIGN_DOMAIN}/acc/home'"
 }
+
+function searchBuild {
+  local assetCount=0 u downloadAsset
+  for assetURL in $(python ${CAMP_AC_ROOT}/../acc-dev/acc-dev-setup/utils.py searchBuild $@); do
+    if [[ -n ${assetURL} ]]; then
+      u=${assetURL}
+      echo ${u}
+    fi
+    assetCount=$[assetCount+1]
+  done
+  flushInput
+  [[ -z $SEARCH_ONE_BUILD ]] || { [[ ${assetCount} -ne 0 ]] && assetCount=$[$assetCount/$assetCount]; }
+  if [[ ${assetCount} -eq 1 ]]; then
+    downloadAsset=1
+    echo "One Asset found @ $u " | STDINFO
+    readEx "... Download will start in " 5 " seconds. Press any key to abort the download." && unset downloadAsset
+  fi
+  if [[ -n ${downloadAsset} ]]; then
+    >&2 echo
+    >&2 download -d $u "$PWD/$(joinArray _ $@)_${u##*/}"
+    echo "file://$PWD/$(joinArray _ $@)_${u##*/}"
+  fi
+ }
+
 # Aliases
 #
 # Some people use a different file for aliases
@@ -10156,7 +11562,7 @@ alias du='du -h'
 #
 # Misc :)
 alias less='less -r'                          # raw control characters
-alias LESS="LESSOPEN='| /usr/bin/src-hilite-lesspipe.sh %s' LESS='-RS#3NM~g' $(which less)"
+alias LESS="LESSOPEN='| /usr/bin/src-hilite-lesspipe.sh %s' LESS='-RS#3NM~g' $(type -P less)"
 alias whence='type -a'                        # where, of a sort
 alias grep='grep --color'                     # show differences in colour
 alias egrep='egrep --color=auto'              # show differences in colour
@@ -10175,7 +11581,7 @@ alias h=history2
 alias cd=cd_func
 alias cb=currentBranch
 alias dl=download
-alias g="\"$(which git)\""
+alias g="\"$(type -P git)\""
 alias gam=gitAddAllModified
 alias getCampDB=getCampaignDatabase
 alias perf_sql='pgsql -Atq --pset=pager=off --o /dev/null -c "\timing"'
@@ -10213,11 +11619,17 @@ alias str=findStringOccurances
 alias slogin=soapLogOnAPI
 alias slogout=soapLogOutAPI
 alias '..'='cd ..'
+alias 2-utf8-BOM='vi +"set bomb | set fenc=utf8 | wq!"'
+alias sb='python ${CAMP_AC_ROOT}/../acc-dev/acc-dev-setup/utils.py searchBuild'
+alias s2d=secondsToDuration
+alias uncolor="sed -r 's/\x1B\[[0-9;]*[mK]//g'"
+alias decolor="awk '{gsub(/\x1B\[[0-9;]*[mK]/, \"\")}1'"
+# isCygwin && alias mlr="TZ='Local' $(type -P mlr)"
 
 # enable programmable completion features (you don't need to enable
 # this, if it's already enabled in /etc/bash.bashrc and /etc/profile
 # sources /etc/bash.bashrc).
-if [[ -z BASH_COMPLETION_VERSINFO ]]; then
+if [[ ! -v BASH_COMPLETION_VERSINFO ]]; then
   if ! shopt -oq posix; then
     if [ -f /usr/share/bash-completion/bash_completion ]; then
       . /usr/share/bash-completion/bash_completion
@@ -10226,6 +11638,16 @@ if [[ -z BASH_COMPLETION_VERSINFO ]]; then
     fi
   fi
 fi
+
+function patch_bash_completition
+{
+  local patch
+  # sudo diff -u /usr/share/bash-completion/bash_completion /usr/share/bash-completion/bash_completion_new > bash_completion.patch
+  # patch=$(cat bash_completion.patch | gzip | base64 -w 0)
+  patch='H4sIAAAAAAAAA5WQ0U6DMBiF73mKk8liYu1oaxcBs4QH8A22ZalYpMkEpB1eGHl2GWDQDC88N+2fnp7ztZRSBCdbBzZXtQ6elM1pWr5WR+1MWfTzYZoBwQSjLKRcdNuYy/huvWLfAmEhYx4h5B+Zh0K/o1eXLbtgyiWYjLmIBV9FUcTlvRR8zE4S0LUMbyOQYUkSr7+sjybDdgufY7PB7voG+/0DXK6L4fysKzxq1WiUJ4fM1NYh7QhV6nQ9maraFC4DbeALLC0W/geP+efCo5c17Y8WMkPRzlOopjTP0DZVlSleRpR2KLhAaJdvEwOZtex+ecbvsPqvN529fPRlxvsCsyBxDQMCAAA='
+  sudo patch -r - -N /usr/share/bash-completion/bash_completion <<< $(echo $patch | base64 -d | zcat)
+}
+
 complete -W '-eth -host -vpn -wifi -pub' getIP
 ! isCygwin && complete -W '-eth -host -vpn -pub' getIP
 complete -W 'cygwin debian ubuntu' sw2
@@ -10234,16 +11656,16 @@ complete -F _get_vault_sf_completions sfsql
 complete -F __schema_autocomplete soapGetWSDL
 complete -o nosort -o nospace -F _get_nl_instance_completions nls nlserver sendDelivery
 # https://iridakos.com/programming/2018/03/01/bash-programmable-completion-tutorial
-complete -F _get_hostname_completions cp4r execute_containers exc ping scp ssh
-complete -F _get_hostname_completions -W 'clean db ssh tunnel' sshr
+complete -F _get_hostname_completions  ping scp ssh
+complete -F _get_hostname_completions -W '-all -clean -install -uninstall -db -ssh -tunnel' sshr
 complete -F _soapHost_completions -W 'admin internal' soapLogOnAPI slogin
 complete -F _soapHost_completions soap_rtest containers soapGetTrackingLogs
-complete -f -o nosort -F _get_hostname_completions cp2r
+complete -f -o nosort -F _soapHost_completions  cp2r cp4r execute_containers exc rfexec upload_symbols
 # -A hostname does not generate new hostnames on the fly i.e as /etc/hosts keeps getting updated.
 # you have open a new terminal in order to update hostname list.
 # complete -A hostname ping ssh scp
-complete -o nosort -W 'apache autotests connectVPN capture inMail make nlserver nlclient pop3 smtpMailServer smsServer wslinit' wcrun
-complete -W 'apache campinst campstdpackages cmake cygwin debian9 git gh gradle intelliJ javaIDE java maven mssqlclient newrelic node osenv perf-stk-acc postgres powershell pr python sharedMemTools snowflake sshkeys tesseract vault visualstudio video ffmpeg' wcinstall
+complete -o nosort -W 'apache autotests connectVPN capture cursor-chat-browser inMail make nlserver nlclient pop3 smtpMailServer smsServer wslinit' wcrun
+complete -W 'apache artifactory campinst campstdpackages cmake cygwin[W] debian9[W] ffmpeg git gh gradle intelliJ[W] javaIDE[W] java maven mssqlclient newrelic[L] miller node osenv perf-stk-acc postgres[W] powershell pr proxy[W] python sharedMemTools snowflake squid[W] sshkeys tesseract[W] vault video visualstudio[W]' wcinstall
 complete -o nospace -F __installStandardCampaignPackages_autocomplete installStandardCampaignPackages
 complete -o nospace -o nosort -F __autotest_autocomplete runautotests
 complete -W '-h -i -v -OfWindowTitle' grab captureScreen

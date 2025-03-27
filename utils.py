@@ -1,4 +1,4 @@
-import sys, os, traceback, types
+import sys, os, traceback, types, json
 if( sys.version_info.major < 3 ):
     print("Use python 3.x to run this script", file=sys.stderr)
     raise RuntimeError("Use python 3.x to run this script")
@@ -789,6 +789,22 @@ def updateHTML(path: str, bkpDir: str = '') :
     else:
         updateHTMLFile(path, bkpDir)
 
+def quantifyTextDiff(txtfile1: str, txtfile2: str):
+    """ Quantifies difference between two text files."""
+    if not os.path.isfile(txtfile1) or not os.path.isfile(txtfile2):
+        print("You must specify two exiting text files.", file=sys.stderr)
+        return None
+    tf1 = open(txtfile1).read()
+    tf2 = open(txtfile2).read()
+    from Levenshtein import distance
+    print("Levenshtein distance:", distance(tf1,tf2))
+    from difflib import SequenceMatcher
+    m = SequenceMatcher(None, tf1, tf2)
+    print("real_quick Similarity ratio(Very fast, but only computes an upper bound based on string length): ", m.real_quick_ratio());
+    print("quick Similarity ratio(this counts the number of matches without regard to order): ", m.quick_ratio());
+    print("Similarity ratio(slow but most accurate.Finds matches, and divides that by the total length of both strings times 2): ", m.ratio());
+
+
 def getDeliveryInfoPlot(minTrackingHits=1000, minHitPercentRequired=90):
     from datetime import datetime
     import pandas as pd
@@ -828,6 +844,81 @@ def getDeliveryInfoPlot(minTrackingHits=1000, minHitPercentRequired=90):
     # fig.update_traces(line_color='#0000ff', line_width=5)
     fig.show()
 
+def search_artifacts_with_aql(*searchArgs):
+    '''
+    searchBuild
+    Searches a given acc build in artifactory repo 'generic-campaign-acc-artifacts-release-local'.
+        :param searchArgs: Strings to match in artifact path or name. \n\t
+            Multiple search arguments are and'ed to narrow down the search.
+    '''
+
+    _url = "https://artifactory-uw2.adobeitc.com/artifactory"
+    api_key = os.getenv("ARTIFACTORY_API_TOKEN_UW2")
+    # print(api_key, file=sys.stderr)
+    if not api_key or len(api_key) == 0:
+        print("Invalid ARTIFACTORY_API_TOKEN_UW2 environment variable.", file=sys.stderr)
+        return None
+    aql_query = {
+        "items.find": [
+            {
+                "repo": "generic-campaign-acc-artifacts-release-local",
+                "$and": []
+            }
+        ]
+    }
+
+    # Define AQL query
+    for arg in searchArgs:
+        if len(str(arg)) != 0:
+            searchString =  f"*{arg}*"
+            condition = {"$or": [ {"path": {"$match": searchString}},  {"name": {"$match": searchString}} ] }
+            aql_query["items.find"][0]["$and"].append(condition)
+
+    # Print the JSON string
+    # aql_searchStr = json.dumps(aql_query)
+    # aql_searchStr = aql_searchStr.replace('{"items.find": [', 'items.find(')
+    # aql_searchStr = aql_searchStr[:-2]
+    # aql_searchStr += ')'
+    aql_searchStr = f"items.find({json.dumps(aql_query['items.find'][0])})"
+    # aql_searchStr='items.find({"repo": "generic-campaign-acc-artifacts-release-local", "$and": [ {"path": {"$match": "*30c52e7*"}}]})'
+    # print(f"Executing AQL Query: {aql_searchStr}", file=sys.stderr)
+    url = f"{_url}/api/search/aql"
+    headers = {
+        "X-JFrog-Art-Api": api_key,
+        "Content-Type": "text/plain"
+    }
+
+    try:
+        # Post AQL query to Artifactory
+        response = requests.post(url, headers=headers, data=aql_searchStr)
+        response.raise_for_status()
+        # Verify response content type before parsing JSON
+        if "application/json" in response.headers.get("Content-Type", ""):
+            try:
+                results = response.json().get("results", [])
+            except ValueError as json_err:
+                print(f"Failed to parse JSON response: {json_err}", file=sys.stderr)
+                return
+        else:
+            print("Unexpected content type in response, expected JSON.", file=sys.stderr)
+            return
+
+        # Print out any matches found
+        if results:
+            for result in results:
+                print(f"{_url}/{result['repo']}/{result['path']}/{result['name']}")
+        else:
+            print("No matching artifacts found for the provided parameters.", file=sys.stderr)
+    except requests.exceptions.HTTPError as http_err:
+        print(f"HTTP error occurred: {http_err} (Status Code: {response.status_code})", file=sys.stderr)
+    except requests.exceptions.ConnectionError:
+        print("Network error occurred. Please check your connection.", file=sys.stderr)
+    except requests.exceptions.Timeout:
+        print("The request timed out. Try again later.", file=sys.stderr)
+    except Exception as err:
+        print(f"An unexpected error of type {type(err).__name__} occurred: {err}", file=sys.stderr)
+
+
 if __name__ == '__main__':
   fire.Fire({
       'IPV4'                    : get_all_IPV4_Addrs,
@@ -850,5 +941,7 @@ if __name__ == '__main__':
       'tar.gz2zip'              : targz_2_zip,
       'bestFitSum'              : bestFitSum,
       'updateHTML'              : updateHTML,
+      'quantifyTextDiff'        : quantifyTextDiff,
+      'searchBuild'             : search_artifacts_with_aql,
       'test': test
   })
